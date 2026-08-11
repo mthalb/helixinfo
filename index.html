@@ -413,6 +413,38 @@
     to{opacity:1; transform:translateY(0);}
   }
 
+  /* equipped-item thumbnail (avatar/banner shown as pictures, not raw IDs) */
+  .stat.equip-stat{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .equip-thumb{
+    position:relative;
+    width:100%;
+    height:84px;
+    border-radius:2px;
+    overflow:hidden;
+    background:var(--void-2);
+    border:1px solid var(--line-soft);
+  }
+  .equip-thumb img{
+    width:100%; height:100%;
+    object-fit:contain;
+    display:none;
+  }
+  .equip-thumb img.loaded{display:block;}
+  .equip-thumb-fallback{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--dim);
+    text-align:center;
+    padding:0 6px;
+  }
+  .equip-thumb img.loaded ~ .equip-thumb-fallback{display:none;}
+
   .dossier-head{
     display:flex;
     justify-content:space-between;
@@ -587,7 +619,7 @@
     <div class="key-row">
       <button class="go" id="lookupBtn">GET INFO</button>
     </div>
-    <div class="hint">FREE LOOKUP BY HELIX.</div>
+    <div class="hint">FREE LOOKUP BY TANVIR.</div>
 
     <div class="status" id="status"><span class="sq"></span><span id="statusText"></span></div>
   </div>
@@ -619,6 +651,11 @@
       <div class="stat-grid" id="gridEquip"></div>
     </div>
 
+    <div class="section" id="secLoadout" style="animation-delay:0.4s">
+      <div class="section-title">Loadout — Weapon Skins &amp; Outfit</div>
+      <div class="stat-grid" id="gridLoadout"></div>
+    </div>
+
     <div class="section" id="secSocial" style="animation-delay:0.45s">
       <div class="section-title">Social Info</div>
       <div class="stat-grid" id="gridSocial"></div>
@@ -633,7 +670,7 @@
 
   <footer>
     <span>FREEFIRE INFO--MADE BY HELIX TANVIR.</span>
-    <span>Free plan by HELIX &nbsp;·&nbsp; Paid version:-UNAVAILABLE</span>
+    <span>TANVIR HELIX &nbsp;·&nbsp; Paid version:-UNAVAILABLE</span>
   </footer>
 </div>
 
@@ -650,6 +687,120 @@ const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
 const dossier = document.getElementById('dossier');
 
+// Resolves a Free Fire item ID (avatar/banner ID) to an actual image,
+// trying a couple of public icon mirrors in order since no single one
+// has 100% coverage. Falls back to showing the raw ID text if neither works.
+// Some mirrors return a 200 OK with real dimensions but the image
+// content itself is just a blank black square for IDs they don't
+// actually have art for. Sample a downscaled canvas to catch that
+// case — near-black average brightness with almost no variance means
+// "blank", not "a legitimately dark icon".
+function isBlankImage(img){
+  try{
+    const w = 16, h = 16;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let sum = 0, sumSq = 0, alphaSum = 0;
+    const n = w * h;
+    for(let i = 0; i < data.length; i += 4){
+      const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      sum += lum;
+      sumSq += lum * lum;
+      alphaSum += data[i + 3];
+    }
+    const mean = sum / n;
+    const variance = sumSq / n - mean * mean;
+    return alphaSum > 0 && mean < 12 && variance < 40;
+  }catch(e){
+    // Cross-origin read blocked (mirror doesn't send CORS headers) —
+    // can't verify pixel content, so just trust the image loaded fine.
+    return false;
+  }
+}
+
+function loadEquipImage(imgEl, itemID, onUnavailable){
+  imgEl.classList.remove('loaded');
+  imgEl.removeAttribute('src');
+  if(!itemID){ if(onUnavailable) onUnavailable(); return; }
+
+  const urls = [
+    `https://cdn.jsdelivr.net/gh/I-SHOW-AKIRU200/AKIRU-ICONS@main/ICONS/${itemID}.png`,
+    `https://iconapi.wasmer.app/${itemID}`
+  ];
+  let i = 0;
+
+  function tryNext(){
+    if(i >= urls.length){ if(onUnavailable) onUnavailable(); return; }
+    const url = urls[i++];
+    const test = new Image();
+    test.crossOrigin = 'anonymous';
+    test.onload = function(){
+      if(test.naturalWidth < 10 || test.naturalHeight < 10){ tryNext(); return; }
+      if(isBlankImage(test)){ tryNext(); return; }
+      imgEl.src = url;
+      imgEl.classList.add('loaded');
+    };
+    test.onerror = tryNext;
+    test.src = url;
+  }
+  tryNext();
+}
+
+// Builds a stat-grid card that shows the resolved picture for an
+// equipped item ID (avatar/banner/weapon skin/outfit piece). Shows
+// "Unavailable" instead of the raw ID or a broken/blank image if no
+// mirror has real art for it.
+function equipImageStat(label, itemID){
+  const stat = document.createElement('div');
+  stat.className = 'stat equip-stat';
+
+  const k = document.createElement('div');
+  k.className = 'k';
+  k.textContent = label;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'equip-thumb';
+
+  const img = document.createElement('img');
+  img.alt = label;
+
+  const fallback = document.createElement('div');
+  fallback.className = 'equip-thumb-fallback';
+  fallback.textContent = '…';
+  fallback.title = itemID ? `ID ${itemID}` : '';
+
+  thumb.appendChild(img);
+  thumb.appendChild(fallback);
+  stat.appendChild(k);
+  stat.appendChild(thumb);
+
+  loadEquipImage(img, itemID, () => { fallback.textContent = 'Unavailable'; });
+  return stat;
+}
+
+// Some fields (weapon skins, outfit pieces) may live under slightly
+// different key names depending on the API/region response variant —
+// return the first non-empty array found among the candidates.
+function firstArrayField(...candidates){
+  for(const c of candidates){
+    if(Array.isArray(c) && c.length) return c;
+  }
+  return [];
+}
+
+// Array entries are usually plain item IDs, but some responses wrap
+// them as objects like { itemId, ... } — pull the ID out either way.
+function normalizeItemId(entry){
+  if(entry === null || entry === undefined) return null;
+  if(typeof entry === 'object'){
+    return entry.itemId ?? entry.ItemId ?? entry.id ?? entry.Id ?? entry.skinId ?? entry.SkinId ?? null;
+  }
+  return entry;
+}
+
 function setStatus(kind, text){
   statusEl.className = 'status show ' + kind;
   statusText.textContent = text;
@@ -658,8 +809,8 @@ function clearStatus(){
   statusEl.className = 'status';
 }
 
-function fillGrid(gridEl, entries){
-  gridEl.innerHTML = '';
+function fillGrid(gridEl, entries, append){
+  if(!append) gridEl.innerHTML = '';
   entries.forEach(([k, v, accent]) => {
     if(v === undefined || v === null || v === '') return;
     const stat = document.createElement('div');
@@ -755,12 +906,33 @@ function renderDossier(data){
     document.getElementById('secGuild').style.display = 'none';
   }
 
-  fillGrid(document.getElementById('gridEquip'), [
-    ['Avatar ID', equip.EquippedAvatarId],
-    ['Banner ID', equip.EquippedBannerId],
+  const gridEquip = document.getElementById('gridEquip');
+  gridEquip.innerHTML = '';
+  if(equip.EquippedAvatarId) gridEquip.appendChild(equipImageStat('Avatar', equip.EquippedAvatarId));
+  if(equip.EquippedBannerId) gridEquip.appendChild(equipImageStat('Banner', equip.EquippedBannerId));
+  fillGrid(gridEquip, [
     ['BP ID', equip.EquippedBPID],
     ['BP Badges', equip.EquippedBPBadges],
-  ]);
+  ], true);
+
+  // Weapon skins and outfit pieces are also just item IDs, so the same
+  // icon mirrors resolve pictures for them. The API's public docs don't
+  // spell out these exact field names, so check the common variants
+  // across the objects that might hold them.
+  const weaponSkins = firstArrayField(equip.EquippedWeapon, equip.EquippedWeapons, acc.EquippedWeapon, prof.EquippedWeapon);
+  const outfitPieces = firstArrayField(equip.EquippedOutfit, equip.EquippedOutfits, prof.EquippedOutfit, acc.EquippedOutfit);
+
+  const gridLoadout = document.getElementById('gridLoadout');
+  gridLoadout.innerHTML = '';
+  weaponSkins.forEach((entry, i) => {
+    const id = normalizeItemId(entry);
+    if(id) gridLoadout.appendChild(equipImageStat(weaponSkins.length > 1 ? `Weapon Skin ${i + 1}` : 'Weapon Skin', id));
+  });
+  outfitPieces.forEach((entry, i) => {
+    const id = normalizeItemId(entry);
+    if(id) gridLoadout.appendChild(equipImageStat(`Outfit ${i + 1}`, id));
+  });
+  document.getElementById('secLoadout').style.display = gridLoadout.children.length ? '' : 'none';
 
   fillGrid(document.getElementById('gridSocial'), [
     ['Account ID', social.accountId],
