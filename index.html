@@ -155,7 +155,6 @@
       <div class="field">
         <label for="region">Region</label>
         <select id="region">
-          <option value="">Auto</option>
           <option value="BD">BD</option>
           <option value="IND">IND</option>
           <option value="BR">BR</option>
@@ -245,10 +244,11 @@
 </div>
 
 <script>
-const API_BASE = "https://api.gameskinbo.com";
-
-// DONT TRY TO COPY MY CODE THEN I WILL BEAT YOU
-const API_KEY = "SAGdzEJ0F9XLlVgFkogkdMbSyqdAxiL7xootErC646o";
+// ── API CONFIG ─────────────────────────────────────────────
+// FreeFireApi (siambhau) free tier — get your own key at:
+// https://siambhau69.eu.cc/GetFreeApiKey
+const API_BASE = "https://siambhau69.eu.cc";
+const API_KEY = "FFINFO-Free69";
 
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
@@ -256,19 +256,6 @@ const lookupBtn = document.getElementById('lookupBtn');
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
 const dossier = document.getElementById('dossier');
-
-// Silently tells the server to record this UID if it hasn't been seen
-// before. Fire-and-forget: the client never learns the result, and if
-// this fails for any reason it must never block or affect the lookup
-// UX. All the actual storage/dedupe logic lives server-side in
-// /api/record-uid — this is the only line that talks to it.
-function recordUid(uid){
-  fetch('/api/record-uid', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uid })
-  }).catch(() => {});
-}
 
 function isBlankImage(img){
   try{
@@ -294,12 +281,19 @@ function isBlankImage(img){
   }
 }
 
+// Tries multiple icon sources in order until one loads a real (non-blank) image.
+// 1) 0xMe/ff-resources -> BEST-GUESS path based on the ItemID2 README, NOT verified.
+//    If it 404s for everything, it just falls straight through — costs one extra
+//    failed request per image, nothing else breaks.
+// 2) AKIRU-ICONS -> original source.
+// 3) iconapi.wasmer.app -> original second fallback.
 function loadEquipImage(imgEl, itemID, onUnavailable){
   imgEl.classList.remove('loaded');
   imgEl.removeAttribute('src');
   if(!itemID){ if(onUnavailable) onUnavailable(); return; }
 
   const urls = [
+    `https://cdn.jsdelivr.net/gh/0xMe/ff-resources@main/pngs/300x300/${itemID}.png`,
     `https://cdn.jsdelivr.net/gh/I-SHOW-AKIRU200/AKIRU-ICONS@main/ICONS/${itemID}.png`,
     `https://iconapi.wasmer.app/${itemID}`
   ];
@@ -350,21 +344,6 @@ function equipImageStat(label, itemID){
   return stat;
 }
 
-function firstArrayField(...candidates){
-  for(const c of candidates){
-    if(Array.isArray(c) && c.length) return c;
-  }
-  return [];
-}
-
-function normalizeItemId(entry){
-  if(entry === null || entry === undefined) return null;
-  if(typeof entry === 'object'){
-    return entry.itemId ?? entry.ItemId ?? entry.id ?? entry.Id ?? entry.skinId ?? entry.SkinId ?? null;
-  }
-  return entry;
-}
-
 function setStatus(kind, text){
   statusEl.className = 'status show ' + kind;
   statusText.textContent = text;
@@ -394,26 +373,25 @@ function fmtTimestamp(ts){
 
 async function lookupPlayer(){
   const uid = uidInput.value.trim();
-  const region = regionSelect.value;
+  const region = (regionSelect.value || 'BD');
 
   if(!uid){ setStatus('error', 'Enter a UID first.'); return; }
-  if(!API_KEY){ setStatus('error', 'ERROR, CONTACT THE OWNER.'); return; }
+  if(!API_KEY){
+    setStatus('error', 'Add your FreeFireApi key in the script (get one free at siambhau69.eu.cc/GetFreeApiKey).');
+    return;
+  }
 
   lookupBtn.disabled = true;
   dossier.classList.remove('show');
   setStatus('loading', 'Getting …');
 
-  // Fire-and-forget, doesn't block or affect the lookup below.
-  recordUid(uid);
-
-  let url = `${API_BASE}/ff-info/get?uid=${encodeURIComponent(uid)}`;
-  if(region) url += `&region=${encodeURIComponent(region)}`;
+  const url = `${API_BASE}/freefireinfo/bhau?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
 
   try{
-    const res = await fetch(url, { headers: { 'x-api-key': API_KEY } });
+    const res = await fetch(url);
     const data = await res.json().catch(() => null);
 
-    if(!res.ok){
+    if(!res.ok || (data && data.error)){
       const msg = (data && data.error) ? data.error : `Request failed (${res.status}).`;
       setStatus('error', msg);
       lookupBtn.disabled = false;
@@ -428,45 +406,46 @@ async function lookupPlayer(){
     renderDossier(data);
     clearStatus();
   }catch(err){
-    setStatus('error', 'Request blocked ');
+    setStatus('error', 'Request blocked or network error.');
   }finally{
     lookupBtn.disabled = false;
   }
 }
 
+// FreeFireApi's /freefireinfo/bhau response shape mapped onto the same grids.
 function renderDossier(data){
-  const acc = data.AccountInfo || {};
-  const prof = data.AccountProfileInfo || {};
-  const equip = data.EquippedItemsInfo || {};
-  const social = data.SocialInfo || {};
-  const guild = data.GuildInfo || {};
+  const basic = data.basicInfo || {};
+  const profile = data.profileInfo || {};
+  const clan = data.clanBasicInfo || {};
+  const social = data.socialInfo || {};
 
-  document.getElementById('playerName').textContent = acc.AccountName || 'Unknown Player';
-  document.getElementById('playerRegion').textContent = acc.AccountRegion || regionSelect.value || 'AUTO';
-  document.getElementById('playerSub').textContent = `UID ${social.accountId || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
+  document.getElementById('playerName').textContent = basic.nickname || 'Unknown Player';
+  document.getElementById('playerRegion').textContent = basic.region || regionSelect.value || 'AUTO';
+  document.getElementById('playerSub').textContent = `UID ${basic.accountId || uidInput.value} · Level ${basic.level ?? '—'} · Season ${basic.seasonId ?? '—'}`;
 
   fillGrid(document.getElementById('gridAccount'), [
-    ['Level', acc.AccountLevel],
-    ['EXP', acc.AccountEXP?.toLocaleString?.() ?? acc.AccountEXP],
-    ['Likes', acc.AccountLikes?.toLocaleString?.() ?? acc.AccountLikes, true],
-    ['Region', acc.AccountRegion],
-    ['Created', fmtTimestamp(acc.AccountCreateTime)],
-    ['Last Login', fmtTimestamp(acc.AccountLastLogin)],
+    ['Level', basic.level],
+    ['EXP', basic.exp?.toLocaleString?.() ?? basic.exp],
+    ['Likes', basic.liked?.toLocaleString?.() ?? basic.liked, true],
+    ['Region', basic.region],
+    ['Created', fmtTimestamp(basic.createAt)],
+    ['Last Login', fmtTimestamp(basic.lastLoginAt)],
   ]);
 
   fillGrid(document.getElementById('gridProfile'), [
-    ['BR Rank Points', prof.BrRankPoint, true],
-    ['BR Max Rank', prof.BrMaxRank],
-    ['CS Rank Points', prof.CsRankPoint, true],
-    ['CS Max Rank', prof.CsMaxRank],
+    ['BR Rank Points', basic.rankingPoints, true],
+    ['BR Max Rank', basic.maxRank],
+    ['CS Rank Points', basic.csRankingPoints, true],
+    ['CS Max Rank', basic.csMaxRank],
   ]);
 
   const guildGrid = document.getElementById('gridGuild');
-  if(guild.GuildID){
+  if(clan.clanId){
     fillGrid(guildGrid, [
-      ['Guild Name', guild.GuildName],
-      ['Guild Level', guild.GuildLevel],
-      ['Guild ID', guild.GuildID],
+      ['Guild Name', clan.clanName],
+      ['Guild Level', clan.clanLevel],
+      ['Guild ID', clan.clanId],
+      ['Members', clan.memberNum ? `${clan.memberNum}/${clan.capacity}` : null],
     ]);
     document.getElementById('secGuild').style.display = '';
   }else{
@@ -475,24 +454,15 @@ function renderDossier(data){
 
   const gridEquip = document.getElementById('gridEquip');
   gridEquip.innerHTML = '';
-  if(equip.EquippedAvatarId) gridEquip.appendChild(equipImageStat('Avatar', equip.EquippedAvatarId));
-  if(equip.EquippedBannerId) gridEquip.appendChild(equipImageStat('Banner', equip.EquippedBannerId));
-  fillGrid(gridEquip, [
-    ['BP ID', equip.EquippedBPID],
-    ['BP Badges', equip.EquippedBPBadges],
-  ], true);
-
-  const weaponSkins = firstArrayField(equip.EquippedWeapon, equip.EquippedWeapons, acc.EquippedWeapon, prof.EquippedWeapon);
-  const outfitPieces = firstArrayField(equip.EquippedOutfit, equip.EquippedOutfits, prof.EquippedOutfit, acc.EquippedOutfit);
+  if(basic.headPic) gridEquip.appendChild(equipImageStat('Avatar', basic.headPic));
+  if(basic.bannerId) gridEquip.appendChild(equipImageStat('Banner', basic.bannerId));
 
   const gridLoadout = document.getElementById('gridLoadout');
   gridLoadout.innerHTML = '';
-  weaponSkins.forEach((entry, i) => {
-    const id = normalizeItemId(entry);
-    if(id) gridLoadout.appendChild(equipImageStat(weaponSkins.length > 1 ? `Weapon Skin ${i + 1}` : 'Weapon Skin', id));
+  (basic.weaponSkinShows || []).forEach((id, i) => {
+    if(id) gridLoadout.appendChild(equipImageStat(basic.weaponSkinShows.length > 1 ? `Weapon Skin ${i + 1}` : 'Weapon Skin', id));
   });
-  outfitPieces.forEach((entry, i) => {
-    const id = normalizeItemId(entry);
+  (profile.clothes || []).forEach((id, i) => {
     if(id) gridLoadout.appendChild(equipImageStat(`Outfit ${i + 1}`, id));
   });
   document.getElementById('secLoadout').style.display = gridLoadout.children.length ? '' : 'none';
