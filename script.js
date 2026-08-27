@@ -1,5 +1,5 @@
 // ── API CONFIG ─────────────────────────────────────────────
-.
+
 
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
