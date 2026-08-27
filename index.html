@@ -139,8 +139,8 @@
   @keyframes popupIn{from{opacity:0;transform:translateY(14px) scale(0.97);}to{opacity:1;transform:translateY(0) scale(1);}}
   .popup-card::before{content:"";position:absolute;top:-1px;left:-1px;width:18px;height:18px;border-top:2px solid var(--signal);border-left:2px solid var(--signal);z-index:2;}
   .popup-card::after{content:"";position:absolute;bottom:-1px;right:-1px;width:18px;height:18px;border-bottom:2px solid var(--signal);border-right:2px solid var(--signal);z-index:2;}
-  .popup-img-wrap{width:100%;background:var(--void-2);display:block;max-height:80vh;overflow:hidden;}
-  .popup-img-wrap img{width:100%;height:auto;max-height:80vh;object-fit:contain;display:block;}
+  .popup-img-wrap{width:100%;background:var(--void-2);display:flex;align-items:center;justify-content:center;max-height:60vh;overflow:hidden;}
+  .popup-img-wrap img{width:100%;max-height:60vh;object-fit:contain;display:block;}
   .popup-body{padding:16px 20px 20px;}
   .popup-caption{font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:14px;}
   .popup-close{width:100%;background:linear-gradient(100deg, var(--flare) 0%, var(--flare-2) 100%);color:var(--void);border:none;font-family:'Rajdhani', sans-serif;font-weight:800;font-size:14.5px;letter-spacing:0.06em;text-transform:uppercase;padding:11px 20px;cursor:pointer;border-radius:2px;transition:filter 0.15s ease;}
@@ -278,8 +278,8 @@
 // ── API CONFIG ─────────────────────────────────────────────
 // FreeFireApi (siambhau) free tier — get your own key at:
 // https://siambhau69.eu.cc/GetFreeApiKey
-const API_BASE = "https://siambhau69.eu.cc";
-const API_KEY = "FFINFO-Free69";
+const API_BASE = "https://public.ggwhitehawk.site";
+const API_KEY = "xoSc1ydqzudJhqelrXODtmUGXuUjwfep";
 
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
@@ -416,7 +416,7 @@ async function lookupPlayer(){
   dossier.classList.remove('show');
   setStatus('loading', 'Getting …');
 
-  const url = `${API_BASE}/freefireinfo/bhau?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
+  const url = `${API_BASE}/info?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region.toLowerCase())}&key=${encodeURIComponent(API_KEY)}`;
 
   try{
     const res = await fetch(url);
@@ -443,40 +443,42 @@ async function lookupPlayer(){
   }
 }
 
-// FreeFireApi's /freefireinfo/bhau response shape mapped onto the same grids.
+// ggwhitehawk /info response shape mapped onto the same grids.
 function renderDossier(data){
-  const basic = data.basicInfo || {};
-  const profile = data.profileInfo || {};
-  const clan = data.clanBasicInfo || {};
-  const social = data.socialInfo || {};
+  const acc = data.AccountInfo || {};
+  const profile = data.AccountProfileInfo || {};
+  const guild = data.GuildInfo || {};
+  const social = data.socialinfo || {};
+  const pet = data.petInfo || {};
 
-  document.getElementById('playerName').textContent = basic.nickname || 'Unknown Player';
-  document.getElementById('playerRegion').textContent = basic.region || regionSelect.value || 'AUTO';
-  document.getElementById('playerSub').textContent = `UID ${basic.accountId || uidInput.value} · Level ${basic.level ?? '—'} · Season ${basic.seasonId ?? '—'}`;
+  document.getElementById('playerName').textContent = acc.AccountName || 'Unknown Player';
+  document.getElementById('playerRegion').textContent = acc.AccountRegion || regionSelect.value || 'AUTO';
+  document.getElementById('playerSub').textContent = `UID ${acc.AccountId || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
 
   fillGrid(document.getElementById('gridAccount'), [
-    ['Level', basic.level],
-    ['EXP', basic.exp?.toLocaleString?.() ?? basic.exp],
-    ['Likes', basic.liked?.toLocaleString?.() ?? basic.liked, true],
-    ['Region', basic.region],
-    ['Created', fmtTimestamp(basic.createAt)],
-    ['Last Login', fmtTimestamp(basic.lastLoginAt)],
+    ['Level', acc.AccountLevel],
+    ['EXP', acc.AccountEXP?.toLocaleString?.() ?? acc.AccountEXP],
+    ['Likes', acc.AccountLikes?.toLocaleString?.() ?? acc.AccountLikes, true],
+    ['Region', acc.AccountRegion],
+    ['Created', acc.AccountCreateTime],
+    ['Last Login', acc.AccountLastLogin],
+    ['Title', acc.Title],
   ]);
 
   fillGrid(document.getElementById('gridProfile'), [
-    ['BR Rank Points', basic.rankingPoints, true],
-    ['BR Max Rank', basic.maxRank],
-    ['CS Rank Points', basic.csRankingPoints, true],
-    ['CS Max Rank', basic.csMaxRank],
+    ['BR Rank Points', acc.BrRankPoint, true],
+    ['BR Max Rank', acc.BrMaxRank],
+    ['CS Rank Points', acc.CsRankPoint, true],
+    ['CS Max Rank', acc.CsMaxRank],
   ]);
 
   const guildGrid = document.getElementById('gridGuild');
-  if(clan.clanId){
+  if(guild.GuildID){
     fillGrid(guildGrid, [
-      ['Guild Name', clan.clanName],
-      ['Guild Level', clan.clanLevel],
-      ['Guild ID', clan.clanId],
-      ['Members', clan.memberNum ? `${clan.memberNum}/${clan.capacity}` : null],
+      ['Guild Name', guild.GuildName],
+      ['Guild Level', guild.GuildLevel],
+      ['Guild ID', guild.GuildID],
+      ['Members', guild.GuildMember ? `${guild.GuildMember}/${guild.GuildCapacity}` : null],
     ]);
     document.getElementById('secGuild').style.display = '';
   }else{
@@ -485,23 +487,27 @@ function renderDossier(data){
 
   const gridEquip = document.getElementById('gridEquip');
   gridEquip.innerHTML = '';
-  if(basic.headPic) gridEquip.appendChild(equipImageStat('Avatar', basic.headPic));
-  if(basic.bannerId) gridEquip.appendChild(equipImageStat('Banner', basic.bannerId));
+  if(acc.AccountAvatarId) gridEquip.appendChild(equipImageStat('Avatar', acc.AccountAvatarId));
+  if(acc.AccountBannerId) gridEquip.appendChild(equipImageStat('Banner', acc.AccountBannerId));
+  if(pet.skinId) gridEquip.appendChild(equipImageStat('Pet', pet.skinId));
 
   const gridLoadout = document.getElementById('gridLoadout');
   gridLoadout.innerHTML = '';
-  (basic.weaponSkinShows || []).forEach((id, i) => {
-    if(id) gridLoadout.appendChild(equipImageStat(basic.weaponSkinShows.length > 1 ? `Weapon Skin ${i + 1}` : 'Weapon Skin', id));
+  (acc.EquippedWeapon || []).forEach((id, i) => {
+    if(id) gridLoadout.appendChild(equipImageStat(acc.EquippedWeapon.length > 1 ? `Weapon ${i + 1}` : 'Weapon', id));
   });
-  (profile.clothes || []).forEach((id, i) => {
+  (profile.EquippedOutfit || []).forEach((id, i) => {
     if(id) gridLoadout.appendChild(equipImageStat(`Outfit ${i + 1}`, id));
   });
   document.getElementById('secLoadout').style.display = gridLoadout.children.length ? '' : 'none';
 
   fillGrid(document.getElementById('gridSocial'), [
-    ['Account ID', social.accountId],
-    ['Gender', (social.gender || '').replace('Gender_', '')],
-    ['Language', (social.language || '').replace('Language_', '')],
+    ['Account ID', acc.AccountId],
+    ['Language', (social.AccountLanguage || '').replace('Language_', '')],
+    ['Prefer Mode', (social.AccountPreferMode || '').replace('Prefermode_', '')],
+    ['Signature', social.AccountSignature],
+    ['Pet Name', pet.name],
+    ['Pet Level', pet.level],
   ]);
 
   dossier.classList.add('show');
@@ -589,11 +595,6 @@ uidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupPlayer()
     const d = snap.val();
     if(!d || !d.active || !d.imageUrl) return;
 
-    // Don't re-show the same announcement to the same visitor repeatedly in one session.
-    //const seenKey = 'ffinfo_popup_seen_' + (d.updatedAt || d.imageUrl);
-    // if(sessionStorage.getItem(seenKey)) return;
-    //sessionStorage.setItem(seenKey, '1');
-//
     popupImg.src = d.imageUrl;
     popupImg.alt = d.caption || 'Announcement';
     popupCaption.textContent = d.caption || '';
