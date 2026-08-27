@@ -1,8 +1,8 @@
 // ── API CONFIG ─────────────────────────────────────────────
-// FreeFireApi free tier — get your own key at:
-//
-const API_BASE = "https://public.ggwhitehawk.site";
-const API_KEY = "xoSc1ydqzudJhqelrXODtmUGXuUjwfep";
+// FreeFireApi (siambhau) free tier — get your own key at:
+// https://siambhau69.eu.cc/GetFreeApiKey
+// Requests go through our own /api/* serverless routes, which hold the
+// real upstream API key server-side. No key is ever sent to the browser.
 
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
@@ -130,16 +130,11 @@ async function lookupPlayer(){
   const region = (regionSelect.value || 'BD');
 
   if(!uid){ setStatus('error', 'Enter a UID first.'); return; }
-  if(!API_KEY){
-    setStatus('error', 'Add your FreeFireApi key in the script (get one free at siambhau69.eu.cc/GetFreeApiKey).');
-    return;
-  }
-
   lookupBtn.disabled = true;
   dossier.classList.remove('show');
   setStatus('loading', 'Getting …');
 
-  const url = `${API_BASE}/info?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region.toLowerCase())}&key=${encodeURIComponent(API_KEY)}`;
+  const url = `/api/lookup?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region.toLowerCase())}`;
 
   try{
     const res = await fetch(url);
@@ -278,7 +273,7 @@ async function lookupGuild(){
   guildDossier.classList.remove('show');
   setGuildStatus('loading', 'Getting …');
 
-  const url = `${API_BASE}/guild?id=${encodeURIComponent(id)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
+  const url = `/api/guild?id=${encodeURIComponent(id)}&region=${encodeURIComponent(region)}`;
   try{
     const res = await fetch(url);
     const data = await res.json().catch(() => null);
@@ -333,7 +328,7 @@ async function lookupNickname(){
   nickDossier.classList.remove('show');
   setNickStatus('loading', 'Getting …');
 
-  const url = `${API_BASE}/nickname?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
+  const url = `/api/nickname?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}`;
   try{
     const res = await fetch(url);
     const data = await res.json().catch(() => null);
