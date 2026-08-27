@@ -13,6 +13,30 @@
     --blood:#FF4747;
     --ok:#3FFFA0;
   }
+.button-style{
+  display:inline-block;
+  background:linear-gradient(100deg, var(--flare) 0%, var(--flare-2) 100%);
+  color:var(--void);
+  font-family:'Rajdhani', sans-serif;
+  font-weight:800;
+  font-size:15.5px;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  padding:12px 26px;
+  border-radius:2px;
+  text-decoration:none;
+  cursor:pointer;
+  transition:filter 0.15s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  box-shadow:0 6px 24px -6px rgba(255,90,20,0.6);
+}
+.button-style:hover{
+  filter:brightness(1.14);
+  box-shadow:0 8px 30px -6px rgba(255,140,20,0.75);
+  transform:translateY(-1px);
+}
+.button-style:active{
+  transform:translateY(1px);
+}
   *{box-sizing:border-box;}
   html{scroll-behavior:smooth;}
   body{margin:0;background:var(--void);color:var(--bone);font-family:'IBM Plex Mono', monospace;min-height:100vh;position:relative;overflow-x:hidden;}
