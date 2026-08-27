@@ -49,6 +49,10 @@
   h1.title span{position:relative;background:linear-gradient(100deg, var(--signal) 0%, var(--flare) 55%, var(--flare-2) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
   h1.title span::after{content:"";position:absolute;left:0;right:0;bottom:4px;height:8px;background:rgba(255,122,24,0.22);z-index:-1;}
   .sub{color:var(--dim);font-size:14.5px;max-width:54ch;line-height:1.65;margin-bottom:36px;}
+  .tool-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .tool-tab{background:var(--panel);color:var(--dim);border:1px solid var(--line);font-family:'Rajdhani', sans-serif;font-weight:700;font-size:13.5px;letter-spacing:0.04em;text-transform:uppercase;padding:9px 16px;cursor:pointer;border-radius:2px;transition:border-color 0.15s ease, color 0.15s ease, background 0.15s ease;}
+  .tool-tab:hover{border-color:var(--flare);color:var(--bone);}
+  .tool-tab.active{background:linear-gradient(100deg, var(--flare) 0%, var(--flare-2) 100%);color:var(--void);border-color:transparent;}
   .search-panel{background:linear-gradient(165deg, var(--panel) 0%, var(--panel-2) 100%);border:1px solid var(--line);padding:24px;position:relative;overflow:hidden;border-radius:2px;box-shadow:0 24px 70px -20px rgba(255,90,20,0.22), 0 20px 60px -20px rgba(0,0,0,0.6);}
   .search-panel::before{content:"";position:absolute;top:-1px;left:-1px;width:20px;height:20px;border-top:2px solid var(--signal);border-left:2px solid var(--signal);z-index:2;}
   .search-panel::after{content:"";position:absolute;bottom:-1px;right:-1px;width:20px;height:20px;border-bottom:2px solid var(--signal);border-right:2px solid var(--signal);z-index:2;}
@@ -162,6 +166,13 @@
   <h1 class="title">GET a player's <span>INFO</span><br>from UID.</h1>
   <p class="sub">Enter a Free Fire UID to get account, rank, guild and loadout data.</p>
 
+  <div class="tool-tabs" id="toolTabs">
+    <button class="tool-tab active" data-tool="player">Player Lookup</button>
+    <button class="tool-tab" data-tool="guild">Guild Lookup</button>
+    <button class="tool-tab" data-tool="nickname">Nickname Lookup</button>
+  </div>
+
+  <div class="tool-panel" id="panelPlayer">
   <div class="search-panel">
     <div class="scan-sweep"></div>
     <div class="field-row">
@@ -190,6 +201,91 @@
     <div class="hint">FREE LOOKUP BY TANVIR.</div>
 
     <div class="status" id="status"><span class="sq"></span><span id="statusText"></span></div>
+  </div>
+  </div>
+
+  <div class="tool-panel" id="panelGuild" style="display:none;">
+  <div class="search-panel">
+    <div class="scan-sweep"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="guildId">Guild ID</label>
+        <input id="guildId" type="text" inputmode="numeric" placeholder="e.g. 3102231070" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="guildRegion">Region</label>
+        <select id="guildRegion">
+          <option value="BD">BD</option>
+          <option value="IND">IND</option>
+          <option value="BR">BR</option>
+          <option value="US">US</option>
+          <option value="SAC">SAC</option>
+          <option value="NA">NA</option>
+          <option value="ID">ID</option>
+          <option value="SG">SG</option>
+          <option value="PK">PK</option>
+        </select>
+      </div>
+    </div>
+    <div class="key-row">
+      <button class="go" id="guildLookupBtn">GET GUILD</button>
+    </div>
+    <div class="hint">LOOK UP A GUILD BY ID.</div>
+    <div class="status" id="guildStatus"><span class="sq"></span><span id="guildStatusText"></span></div>
+  </div>
+  <div class="dossier" id="guildDossier">
+    <div class="dossier-head">
+      <h2 id="guildName">—</h2>
+      <span class="region" id="guildRegionOut">—</span>
+    </div>
+    <div class="dossier-sub" id="guildSub">—</div>
+    <div class="section" style="animation-delay:0.05s">
+      <div class="section-title">Guild Info</div>
+      <div class="stat-grid" id="gridGuildLookup"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="tool-panel" id="panelNickname" style="display:none;">
+  <div class="search-panel">
+    <div class="scan-sweep"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="nickUid">Player UID</label>
+        <input id="nickUid" type="text" inputmode="numeric" placeholder="e.g. 5877360318" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="nickRegion">Region</label>
+        <select id="nickRegion">
+          <option value="BD">BD</option>
+          <option value="IND">IND</option>
+          <option value="BR">BR</option>
+          <option value="US">US</option>
+          <option value="SAC">SAC</option>
+          <option value="NA">NA</option>
+          <option value="ID">ID</option>
+          <option value="SG">SG</option>
+          <option value="PK">PK</option>
+        </select>
+      </div>
+    </div>
+    <div class="key-row">
+      <button class="go" id="nickLookupBtn">GET NICKNAME</button>
+    </div>
+    <div class="hint">QUICK NICKNAME &amp; LEVEL LOOKUP.</div>
+    <div class="status" id="nickStatus"><span class="sq"></span><span id="nickStatusText"></span></div>
+  </div>
+  <div class="dossier" id="nickDossier">
+    <div class="dossier-head">
+      <h2 id="nickName">—</h2>
+      <span class="region" id="nickRegionOut">—</span>
+    </div>
+    <div class="dossier-sub" id="nickSub">—</div>
+    <div class="section" style="animation-delay:0.05s">
+      <div class="section-title">Player Info</div>
+      <div class="stat-grid" id="gridNickname"></div>
+    </div>
+  </div>
   </div>
 
   <div class="dossier" id="dossier">
@@ -515,6 +611,128 @@ function renderDossier(data){
 
 lookupBtn.addEventListener('click', lookupPlayer);
 uidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupPlayer(); });
+
+// ── Tab switching ──
+const toolTabs = document.querySelectorAll('.tool-tab');
+const toolPanels = {
+  player: document.getElementById('panelPlayer'),
+  guild: document.getElementById('panelGuild'),
+  nickname: document.getElementById('panelNickname'),
+};
+toolTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    toolTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    Object.values(toolPanels).forEach(p => p.style.display = 'none');
+    toolPanels[tab.dataset.tool].style.display = '';
+  });
+});
+
+// ── Guild Lookup ──
+const guildIdInput = document.getElementById('guildId');
+const guildRegionSelect = document.getElementById('guildRegion');
+const guildLookupBtn = document.getElementById('guildLookupBtn');
+const guildStatusEl = document.getElementById('guildStatus');
+const guildStatusText = document.getElementById('guildStatusText');
+const guildDossier = document.getElementById('guildDossier');
+
+function setGuildStatus(kind, text){
+  guildStatusEl.className = 'status show ' + kind;
+  guildStatusText.textContent = text;
+}
+function clearGuildStatus(){ guildStatusEl.className = 'status'; }
+
+async function lookupGuild(){
+  const id = guildIdInput.value.trim();
+  const region = (guildRegionSelect.value || 'BD').toLowerCase();
+  if(!id){ setGuildStatus('error', 'Enter a guild ID first.'); return; }
+
+  guildLookupBtn.disabled = true;
+  guildDossier.classList.remove('show');
+  setGuildStatus('loading', 'Getting …');
+
+  const url = `${API_BASE}/guild?id=${encodeURIComponent(id)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
+  try{
+    const res = await fetch(url);
+    const data = await res.json().catch(() => null);
+    if(!res.ok || !data || data.success === false){
+      setGuildStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`);
+      return;
+    }
+    const g = (data.GuildInfoResponse && data.GuildInfoResponse.GuildInfo) || {};
+    document.getElementById('guildName').textContent = g.GuildName || 'Unknown Guild';
+    document.getElementById('guildRegionOut').textContent = g.GuildRegion || region.toUpperCase();
+    document.getElementById('guildSub').textContent = `Guild ID ${g.GuildId || id} · Level ${g.GuildLevel ?? '—'}`;
+    fillGrid(document.getElementById('gridGuildLookup'), [
+      ['Members', g.GuildCurrentMembers != null ? `${g.GuildCurrentMembers}/${g.GuildCapacity}` : null],
+      ['Level', g.GuildLevel],
+      ['Leader UID', g.GuildLeaderUID],
+      ['Activity Points', g.GuildActivityPoint, true],
+      ['Weekly Activity', g.GuildWeeklyActivityPoint, true],
+      ['Slogan', g.GuildSlogan],
+      ['Created', g.GuildCreateTime ? fmtTimestamp(g.GuildCreateTime) : null],
+    ]);
+    guildDossier.classList.add('show');
+    clearGuildStatus();
+  }catch(err){
+    setGuildStatus('error', 'Request blocked or network error.');
+  }finally{
+    guildLookupBtn.disabled = false;
+  }
+}
+guildLookupBtn.addEventListener('click', lookupGuild);
+guildIdInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupGuild(); });
+
+// ── Nickname Lookup ──
+const nickUidInput = document.getElementById('nickUid');
+const nickRegionSelect = document.getElementById('nickRegion');
+const nickLookupBtn = document.getElementById('nickLookupBtn');
+const nickStatusEl = document.getElementById('nickStatus');
+const nickStatusText = document.getElementById('nickStatusText');
+const nickDossier = document.getElementById('nickDossier');
+
+function setNickStatus(kind, text){
+  nickStatusEl.className = 'status show ' + kind;
+  nickStatusText.textContent = text;
+}
+function clearNickStatus(){ nickStatusEl.className = 'status'; }
+
+async function lookupNickname(){
+  const uid = nickUidInput.value.trim();
+  const region = (nickRegionSelect.value || 'BD').toLowerCase();
+  if(!uid){ setNickStatus('error', 'Enter a UID first.'); return; }
+
+  nickLookupBtn.disabled = true;
+  nickDossier.classList.remove('show');
+  setNickStatus('loading', 'Getting …');
+
+  const url = `${API_BASE}/nickname?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}&key=${encodeURIComponent(API_KEY)}`;
+  try{
+    const res = await fetch(url);
+    const data = await res.json().catch(() => null);
+    if(!res.ok || !data || data.success === false){
+      setNickStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`);
+      return;
+    }
+    document.getElementById('nickName').textContent = data.nickname || 'Unknown Player';
+    document.getElementById('nickRegionOut').textContent = (data.region || region).toUpperCase();
+    document.getElementById('nickSub').textContent = `UID ${data.player_id || uid} · Level ${data.level ?? '—'}`;
+    fillGrid(document.getElementById('gridNickname'), [
+      ['Nickname', data.nickname],
+      ['Level', data.level],
+      ['Likes', data.likes?.toLocaleString?.() ?? data.likes, true],
+      ['Region', (data.region || region).toUpperCase()],
+    ]);
+    nickDossier.classList.add('show');
+    clearNickStatus();
+  }catch(err){
+    setNickStatus('error', 'Request blocked or network error.');
+  }finally{
+    nickLookupBtn.disabled = false;
+  }
+}
+nickLookupBtn.addEventListener('click', lookupNickname);
+nickUidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupNickname(); });
 </script>
 
 <!-- Live online visitor count via Firebase Realtime Database presence, + remote popup -->
