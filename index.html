@@ -212,6 +212,16 @@
   </footer>
 </div>
 
+<!-- DevTools deterrent overlay -->
+<div class="dt-block" id="dtBlock">
+  <div class="dt-block-icon">!</div>
+  <h2>Access Denied</h2>
+  <p>Developer tools are disabled on this site.</p>
+  <p>Close DevTools and return to the page when you're ready.</p>
+  <div class="dt-spinner"></div>
+  <div class="dt-foot">FREEFIRE INFO — HELIX (TANVIR)</div>
+</div>
+
 <!-- Popup / announcement modal, content controlled remotely -->
 <div class="popup-overlay" id="popupOverlay">
   <div class="popup-card">
@@ -227,6 +237,7 @@
 </div>
 
 <script src="script.js"></script>
+<script src="devtools-guard.js"></script>
 <script type="module" src="firebase.js"></script>
 </body>
 </html>
