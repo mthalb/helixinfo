@@ -1,8 +1,5 @@
 // ── API CONFIG ─────────────────────────────────────────────
-// FreeFireApi (siambhau) free tier — get your own key at:
-// https://siambhau69.eu.cc/GetFreeApiKey
-// Requests go through our own /api/* serverless routes, which hold the
-// real upstream API key server-side. No key is ever sent to the browser.
+.
 
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
@@ -35,12 +32,7 @@ function isBlankImage(img){
   }
 }
 
-// Tries multiple icon sources in order until one loads a real (non-blank) image.
-// 1) 0xMe/ff-resources -> BEST-GUESS path based on the ItemID2 README, NOT verified.
-//    If it 404s for everything, it just falls straight through — costs one extra
-//    failed request per image, nothing else breaks.
-// 2) AKIRU-ICONS -> original source.
-// 3) iconapi.wasmer.app -> original second fallback.
+
 function loadEquipImage(imgEl, itemID, onUnavailable){
   imgEl.classList.remove('loaded');
   imgEl.removeAttribute('src');
@@ -161,7 +153,7 @@ async function lookupPlayer(){
   }
 }
 
-// ggwhitehawk /info response shape mapped onto the same grids.
+
 function renderDossier(data){
   const acc = data.AccountInfo || {};
   const profile = data.AccountProfileInfo || {};
