@@ -90,13 +90,23 @@
   button.ghost:disabled{color:#8b8f90;border-color:var(--line);cursor:not-allowed;}
   .hint{font-size:11px;color:var(--dim);margin-top:12px;line-height:1.6;position:relative;z-index:1;}
   .hint code{background:var(--void-2);padding:1px 5px;border:1px solid var(--line);color:var(--signal);font-size:10.5px;border-radius:2px;}
-  .status{margin-top:18px;font-size:12.5px;letter-spacing:0.04em;display:none;align-items:center;gap:8px;position:relative;z-index:1;}
+  .status{margin-top:18px;font-size:12.5px;letter-spacing:0.04em;display:none;align-items:center;gap:8px;flex-wrap:wrap;position:relative;z-index:1;}
   .status.show{display:flex;}
   .status .sq{width:7px;height:7px;flex-shrink:0;border-radius:50%;}
   .status.loading .sq{background:var(--signal);box-shadow:0 0 10px 2px rgba(255,212,0,0.6);animation:pulse 1s ease-in-out infinite;}
   .status.error .sq{background:var(--blood);box-shadow:0 0 10px 2px rgba(255,71,71,0.5);}
   .status.error{color:var(--blood);}
   .status.loading{color:var(--signal);}
+  /* Added: cache / cooldown status states */
+  .status.cached .sq{background:var(--ok);box-shadow:0 0 10px 2px rgba(63,255,160,0.5);}
+  .status.cached{color:var(--ok);}
+  .status.cooldown .sq{background:var(--dim);}
+  .status.cooldown{color:var(--dim);}
+  /* Added: retry button inside status line */
+  .retry-btn{background:transparent;border:1px solid var(--blood);color:var(--blood);font-family:'IBM Plex Mono', monospace;font-size:11px;padding:4px 10px;border-radius:2px;cursor:pointer;letter-spacing:0.04em;}
+  .retry-btn:hover{background:rgba(255,71,71,0.1);}
+  /* Added: invalid UID input state */
+  input.invalid{border-color:var(--blood);box-shadow:0 0 0 3px rgba(255,71,71,0.18);}
   .dossier{margin-top:44px;display:none;}
   .dossier.show{display:block;animation:dossierIn 0.5s ease both;}
   @keyframes dossierIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
@@ -104,6 +114,8 @@
   .dossier-head h2{font-size:31px;color:var(--bone);text-shadow:0 0 30px rgba(255,122,24,0.3);}
   .dossier-head .region{font-size:11px;color:var(--void);background:linear-gradient(100deg, var(--signal), var(--flare));padding:4px 10px;letter-spacing:0.08em;font-family:'IBM Plex Mono', monospace;font-weight:600;border-radius:2px;}
   .dossier-sub{font-size:12px;color:var(--dim);padding:8px 0 0;letter-spacing:0.04em;}
+  /* Added: download/share buttons row under each dossier */
+  .dossier-actions{display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;position:relative;z-index:1;}
   .section{margin-top:30px;opacity:0;animation:sectionIn 0.45s ease forwards;}
   .section-title{font-size:11px;color:var(--signal);letter-spacing:0.16em;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-weight:700;}
   .section-title::after{content:"";flex:1;height:1px;background:linear-gradient(90deg, var(--line), transparent);}
@@ -192,6 +204,9 @@
     header .meta{text-align:left;}
     .usage-panel .row{flex-direction:column;align-items:stretch;}
     .stat.equip-stat{flex:0 0 calc(50% - 6px);}
+    /* Added: stack download/share buttons on mobile */
+    .dossier-actions{flex-direction:column;}
+    .dossier-actions button{width:100%;}
   }
   @media (prefers-reduced-motion: reduce){
     *{animation-duration:0.001ms !important;animation-iteration-count:1 !important;transition-duration:0.001ms !important;}
