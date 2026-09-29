@@ -1,586 +1,246 @@
-// ── API CONFIG ─────────────────────────────────────────────
-
-const uidInput = document.getElementById('uid');
-const regionSelect = document.getElementById('region');
-const lookupBtn = document.getElementById('lookupBtn');
-const statusEl = document.getElementById('status');
-const statusText = document.getElementById('statusText');
-const dossier = document.getElementById('dossier');
-
-// ── ICON APIS (tried in order; next one is used if the image is missing or blank) ──
-const ICON_APIS = [
-  id => `https://cdn.jsdelivr.net/gh/ShahGCreator/icon@main/PNG/${id}.png`,
-  id => `https://cdn.jsdelivr.net/gh/0xMe/ff-resources@main/pngs/300x300/${id}.png`
-];
-
-function isBlankImage(img){
-  try{
-    const w = 16, h = 16;
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, w, h);
-    const data = ctx.getImageData(0, 0, w, h).data;
-    let sum = 0, sumSq = 0, alphaSum = 0;
-    const n = w * h;
-    for(let i = 0; i < data.length; i += 4){
-      const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      sum += lum;
-      sumSq += lum * lum;
-      alphaSum += data[i + 3];
-    }
-    const mean = sum / n;
-    const variance = sumSq / n - mean * mean;
-    return alphaSum > 0 && mean < 12 && variance < 40;
-  }catch(e){
-    return false;
-  }
-}
-
-function loadEquipImage(imgEl, itemID, onUnavailable){
-  imgEl.classList.remove('loaded');
-  imgEl.removeAttribute('src');
-  if(!itemID){ if(onUnavailable) onUnavailable(); return; }
-
-  const urls = ICON_APIS.map(fn => fn(itemID));
-  let i = 0;
-
-  function tryNext(){
-    if(i >= urls.length){ if(onUnavailable) onUnavailable(); return; }
-    const url = urls[i++];
-    const test = new Image();
-    test.crossOrigin = 'anonymous';
-    test.onload = function(){
-      if(test.naturalWidth < 10 || test.naturalHeight < 10){ tryNext(); return; }
-      if(isBlankImage(test)){ tryNext(); return; }
-      imgEl.src = url;
-      imgEl.classList.add('loaded');
-    };
-    test.onerror = tryNext;
-    test.src = url;
-  }
-  tryNext();
-}
-
-function equipImageStat(label, itemID){
-  const stat = document.createElement('div');
-  stat.className = 'stat equip-stat';
-
-  const k = document.createElement('div');
-  k.className = 'k';
-  k.textContent = label;
-
-  const thumb = document.createElement('div');
-  thumb.className = 'equip-thumb';
-
-  const img = document.createElement('img');
-  img.alt = label;
-  img.crossOrigin = 'anonymous'; // needed so html2canvas can capture it
-
-  const fallback = document.createElement('div');
-  fallback.className = 'equip-thumb-fallback';
-  fallback.textContent = '…';
-  fallback.title = itemID ? `ID ${itemID}` : '';
-
-  thumb.appendChild(img);
-  thumb.appendChild(fallback);
-  stat.appendChild(k);
-  stat.appendChild(thumb);
-
-  loadEquipImage(img, itemID, () => { fallback.textContent = 'Unavailable'; });
-  return stat;
-}
-
-function fillGrid(gridEl, entries, append){
-  if(!append) gridEl.innerHTML = '';
-  entries.forEach(([k, v, accent]) => {
-    if(v === undefined || v === null || v === '') return;
-    const stat = document.createElement('div');
-    stat.className = 'stat';
-    stat.innerHTML = `<div class="k">${k}</div><div class="v${accent ? ' accent' : ''}">${v}</div>`;
-    gridEl.appendChild(stat);
-  });
-}
-
-function fmtTimestamp(ts){
-  if(!ts) return null;
-  const n = Number(ts) * 1000;
-  if(Number.isNaN(n)) return ts;
-  const d = new Date(n);
-  return d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
-}
-
-// ── Shared UID validation (8–12 digits) ──
-function isValidUid(uid){
-  return /^[0-9]{8,12}$/.test(uid);
-}
-function wireDigitsOnly(input, maxLen){
-  input.setAttribute('maxlength', String(maxLen));
-  input.addEventListener('input', () => {
-    input.value = input.value.replace(/[^0-9]/g, '');
-    input.classList.remove('invalid');
-  });
-}
-
-// ── Shared result cache (3 minutes) ──
-const CACHE_TTL_MS = 3 * 60 * 1000;
-const resultCache = new Map(); // key "type:id:region" -> { data, at }
-
-function cacheKey(type, id, region){ return `${type}:${id}:${region || ''}`; }
-function getCached(type, id, region){
-  const hit = resultCache.get(cacheKey(type, id, region));
-  if(!hit) return null;
-  if(Date.now() - hit.at > CACHE_TTL_MS){
-    resultCache.delete(cacheKey(type, id, region));
-    return null;
-  }
-  return hit.data;
-}
-function setCached(type, id, region, data){
-  resultCache.set(cacheKey(type, id, region), { data, at: Date.now() });
-}
-
-// ── Shared cooldown: one 3s lock across all lookup buttons, so spam-
-// clicking any tool can't be used to hammer the API. ──
-const COOLDOWN_MS = 3000;
-let cooldownUntil = 0;
-let cooldownTimer = null;
-const ALL_LOOKUP_BUTTONS = () => [lookupBtn, guildLookupBtn, nickLookupBtn].filter(Boolean);
-const ALL_STATUS_SETTERS = [];
-
-function startCooldown(activeSetStatus){
-  cooldownUntil = Date.now() + COOLDOWN_MS;
-  ALL_LOOKUP_BUTTONS().forEach(b => b.disabled = true);
-  tickCooldown(activeSetStatus);
-}
-function tickCooldown(activeSetStatus){
-  const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
-  if(remaining <= 0){
-    ALL_LOOKUP_BUTTONS().forEach(b => b.disabled = false);
-    clearTimeout(cooldownTimer);
-    return;
-  }
-  activeSetStatus('cooldown', `Please wait ${remaining}s before searching again…`);
-  cooldownTimer = setTimeout(() => tickCooldown(activeSetStatus), 250);
-}
-
-// ── Generic status helper with optional retry button ──
-function makeStatusHelpers(el, textEl){
-  function setStatus(kind, text, opts){
-    el.className = 'status show ' + kind;
-    textEl.textContent = text;
-    const existingRetry = el.querySelector('.retry-btn');
-    if(existingRetry) existingRetry.remove();
-    if(opts && opts.retry){
-      const btn = document.createElement('button');
-      btn.className = 'retry-btn';
-      btn.textContent = 'Retry';
-      btn.addEventListener('click', opts.retry);
-      el.appendChild(btn);
-    }
-  }
-  function clearStatus(){ el.className = 'status'; }
-  return { setStatus, clearStatus };
-}
-
-const { setStatus, clearStatus } = makeStatusHelpers(statusEl, statusText);
-wireDigitsOnly(uidInput, 12);
-
-async function lookupPlayer(){
-  if(Date.now() < cooldownUntil) return;
-
-  const uid = uidInput.value.trim();
-  const region = (regionSelect.value || 'BD');
-
-  if(!isValidUid(uid)){
-    uidInput.classList.add('invalid');
-    setStatus('error', 'UID must be 8–12 digits.');
-    return;
-  }
-
-  lookupBtn.disabled = true;
-  dossier.classList.remove('show');
-
-  const cached = getCached('player', uid, region);
-  if(cached){
-    renderDossier(cached, uid);
-    setStatus('cached', 'Loaded from cache (recently searched).');
-    startCooldown(setStatus);
-    return;
-  }
-
-  setStatus('loading', 'Getting …');
-
-  const url = `/api/lookup?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region.toLowerCase())}`;
-
-  try{
-    const res = await fetch(url);
-    const data = await res.json().catch(() => null);
-
-    if(!res.ok || (data && data.error)){
-      const msg = (data && data.error) ? data.error : `Request failed (${res.status}).`;
-      setStatus('error', msg, { retry: () => { clearStatus(); lookupPlayer(); } });
-      lookupBtn.disabled = false;
-      return;
-    }
-    if(!data){
-      setStatus('error', 'Empty or unreadable response.', { retry: () => { clearStatus(); lookupPlayer(); } });
-      lookupBtn.disabled = false;
-      return;
-    }
-
-    setCached('player', uid, region, data);
-    renderDossier(data, uid);
-    clearStatus();
-    startCooldown(setStatus);
-  }catch(err){
-    setStatus('error', 'Request blocked or network error.', { retry: () => { clearStatus(); lookupPlayer(); } });
-    lookupBtn.disabled = false;
-  }
-}
-
-function renderDossier(data, uidForDisplay){
-  const acc = data.AccountInfo || {};
-  const profile = data.AccountProfileInfo || {};
-  const guild = data.GuildInfo || {};
-  const social = data.socialinfo || {};
-  const pet = data.petInfo || {};
-
-  document.getElementById('playerName').textContent = acc.AccountName || 'Unknown Player';
-  document.getElementById('playerRegion').textContent = acc.AccountRegion || regionSelect.value || 'AUTO';
-  document.getElementById('playerSub').textContent = `UID ${acc.AccountId || uidForDisplay || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
-
-  fillGrid(document.getElementById('gridAccount'), [
-    ['Level', acc.AccountLevel],
-    ['EXP', acc.AccountEXP?.toLocaleString?.() ?? acc.AccountEXP],
-    ['Likes', acc.AccountLikes?.toLocaleString?.() ?? acc.AccountLikes, true],
-    ['Region', acc.AccountRegion],
-    ['Created', acc.AccountCreateTime],
-    ['Last Login', acc.AccountLastLogin],
-    ['Title', acc.Title],
-  ]);
-
-  fillGrid(document.getElementById('gridProfile'), [
-    ['BR Rank Points', acc.BrRankPoint, true],
-    ['BR Max Rank', acc.BrMaxRank],
-    ['CS Rank Points', acc.CsRankPoint, true],
-    ['CS Max Rank', acc.CsMaxRank],
-  ]);
-
-  const guildGrid = document.getElementById('gridGuild');
-  if(guild.GuildID){
-    fillGrid(guildGrid, [
-      ['Guild Name', guild.GuildName],
-      ['Guild Level', guild.GuildLevel],
-      ['Guild ID', guild.GuildID],
-      ['Members', guild.GuildMember ? `${guild.GuildMember}/${guild.GuildCapacity}` : null],
-    ]);
-    document.getElementById('secGuild').style.display = '';
-  }else{
-    document.getElementById('secGuild').style.display = 'none';
-  }
-
-  const gridEquip = document.getElementById('gridEquip');
-  gridEquip.innerHTML = '';
-  if(acc.AccountAvatarId) gridEquip.appendChild(equipImageStat('Avatar', acc.AccountAvatarId));
-  if(acc.AccountBannerId) gridEquip.appendChild(equipImageStat('Banner', acc.AccountBannerId));
-  if(pet.skinId) gridEquip.appendChild(equipImageStat('Pet', pet.skinId));
-
-  const gridLoadout = document.getElementById('gridLoadout');
-  gridLoadout.innerHTML = '';
-  (acc.EquippedWeapon || []).forEach((id, i) => {
-    if(id) gridLoadout.appendChild(equipImageStat(acc.EquippedWeapon.length > 1 ? `Weapon ${i + 1}` : 'Weapon', id));
-  });
-  (profile.EquippedOutfit || []).forEach((id, i) => {
-    if(id) gridLoadout.appendChild(equipImageStat(`Outfit ${i + 1}`, id));
-  });
-  document.getElementById('secLoadout').style.display = gridLoadout.children.length ? '' : 'none';
-
-  fillGrid(document.getElementById('gridSocial'), [
-    ['Account ID', acc.AccountId],
-    ['Language', (social.AccountLanguage || '').replace('Language_', '')],
-    ['Prefer Mode', (social.AccountPreferMode || '').replace('Prefermode_', '')],
-    ['Signature', social.AccountSignature],
-    ['Pet Name', pet.name],
-    ['Pet Level', pet.level],
-  ]);
-
-  dossier.classList.add('show');
-}
-
-lookupBtn.addEventListener('click', lookupPlayer);
-uidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupPlayer(); });
-
-// ── Tab switching ──
-const toolTabs = document.querySelectorAll('.tool-tab');
-const toolPanels = {
-  player: document.getElementById('panelPlayer'),
-  guild: document.getElementById('panelGuild'),
-  nickname: document.getElementById('panelNickname'),
-};
-toolTabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    toolTabs.forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    Object.values(toolPanels).forEach(p => p.style.display = 'none');
-    toolPanels[tab.dataset.tool].style.display = '';
-  });
-});
-
-// ── Guild Lookup ──
-const guildIdInput = document.getElementById('guildId');
-const guildRegionSelect = document.getElementById('guildRegion');
-const guildLookupBtn = document.getElementById('guildLookupBtn');
-const guildStatusEl = document.getElementById('guildStatus');
-const guildStatusText = document.getElementById('guildStatusText');
-const guildDossier = document.getElementById('guildDossier');
-const { setStatus: setGuildStatus, clearStatus: clearGuildStatus } = makeStatusHelpers(guildStatusEl, guildStatusText);
-
-async function lookupGuild(){
-  if(Date.now() < cooldownUntil) return;
-
-  const id = guildIdInput.value.trim();
-  const region = (guildRegionSelect.value || 'BD').toLowerCase();
-  if(!id){ setGuildStatus('error', 'Enter a guild ID first.'); return; }
-
-  guildLookupBtn.disabled = true;
-  guildDossier.classList.remove('show');
-
-  const cached = getCached('guild', id, region);
-  if(cached){
-    paintGuild(cached, id, region);
-    setGuildStatus('cached', 'Loaded from cache (recently searched).');
-    startCooldown(setGuildStatus);
-    return;
-  }
-
-  setGuildStatus('loading', 'Getting …');
-
-  const url = `/api/guild?id=${encodeURIComponent(id)}&region=${encodeURIComponent(region)}`;
-  try{
-    const res = await fetch(url);
-    const data = await res.json().catch(() => null);
-    if(!res.ok || !data || data.success === false){
-      setGuildStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`, { retry: () => { clearGuildStatus(); lookupGuild(); } });
-      return;
-    }
-    setCached('guild', id, region, data);
-    paintGuild(data, id, region);
-    clearGuildStatus();
-    startCooldown(setGuildStatus);
-  }catch(err){
-    setGuildStatus('error', 'Request blocked or network error.', { retry: () => { clearGuildStatus(); lookupGuild(); } });
-  }finally{
-    guildLookupBtn.disabled = false;
-  }
-}
-
-function paintGuild(data, id, region){
-  const g = (data.GuildInfoResponse && data.GuildInfoResponse.GuildInfo) || {};
-  document.getElementById('guildName').textContent = g.GuildName || 'Unknown Guild';
-  document.getElementById('guildRegionOut').textContent = g.GuildRegion || region.toUpperCase();
-  document.getElementById('guildSub').textContent = `Guild ID ${g.GuildId || id} · Level ${g.GuildLevel ?? '—'}`;
-  fillGrid(document.getElementById('gridGuildLookup'), [
-    ['Members', g.GuildCurrentMembers != null ? `${g.GuildCurrentMembers}/${g.GuildCapacity}` : null],
-    ['Level', g.GuildLevel],
-    ['Leader UID', g.GuildLeaderUID],
-    ['Activity Points', g.GuildActivityPoint, true],
-    ['Weekly Activity', g.GuildWeeklyActivityPoint, true],
-    ['Slogan', g.GuildSlogan],
-    ['Created', g.GuildCreateTime ? fmtTimestamp(g.GuildCreateTime) : null],
-  ]);
-  guildDossier.classList.add('show');
-}
-
-guildLookupBtn.addEventListener('click', lookupGuild);
-guildIdInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupGuild(); });
-
-// ── Nickname Lookup ──
-const nickUidInput = document.getElementById('nickUid');
-const nickRegionSelect = document.getElementById('nickRegion');
-const nickLookupBtn = document.getElementById('nickLookupBtn');
-const nickStatusEl = document.getElementById('nickStatus');
-const nickStatusText = document.getElementById('nickStatusText');
-const nickDossier = document.getElementById('nickDossier');
-const { setStatus: setNickStatus, clearStatus: clearNickStatus } = makeStatusHelpers(nickStatusEl, nickStatusText);
-wireDigitsOnly(nickUidInput, 12);
-
-async function lookupNickname(){
-  if(Date.now() < cooldownUntil) return;
-
-  const uid = nickUidInput.value.trim();
-  const region = (nickRegionSelect.value || 'BD').toLowerCase();
-
-  if(!isValidUid(uid)){
-    nickUidInput.classList.add('invalid');
-    setNickStatus('error', 'UID must be 8–12 digits.');
-    return;
-  }
-
-  nickLookupBtn.disabled = true;
-  nickDossier.classList.remove('show');
-
-  const cached = getCached('nickname', uid, region);
-  if(cached){
-    paintNickname(cached, uid, region);
-    setNickStatus('cached', 'Loaded from cache (recently searched).');
-    startCooldown(setNickStatus);
-    return;
-  }
-
-  setNickStatus('loading', 'Getting …');
-
-  const url = `/api/nickname?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}`;
-  try{
-    const res = await fetch(url);
-    const data = await res.json().catch(() => null);
-    if(!res.ok || !data || data.success === false){
-      setNickStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`, { retry: () => { clearNickStatus(); lookupNickname(); } });
-      return;
-    }
-    setCached('nickname', uid, region, data);
-    paintNickname(data, uid, region);
-    clearNickStatus();
-    startCooldown(setNickStatus);
-  }catch(err){
-    setNickStatus('error', 'Request blocked or network error.', { retry: () => { clearNickStatus(); lookupNickname(); } });
-  }finally{
-    nickLookupBtn.disabled = false;
-  }
-}
-
-function paintNickname(data, uid, region){
-  document.getElementById('nickName').textContent = data.nickname || 'Unknown Player';
-  document.getElementById('nickRegionOut').textContent = (data.region || region).toUpperCase();
-  document.getElementById('nickSub').textContent = `UID ${data.player_id || uid} · Level ${data.level ?? '—'}`;
-  fillGrid(document.getElementById('gridNickname'), [
-    ['Nickname', data.nickname],
-    ['Level', data.level],
-    ['Likes', data.likes?.toLocaleString?.() ?? data.likes, true],
-    ['Region', (data.region || region).toUpperCase()],
-  ]);
-  nickDossier.classList.add('show');
-}
-
-nickLookupBtn.addEventListener('click', lookupNickname);
-nickUidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupNickname(); });
-
-// ── Download / Share dossier as an image with a QR code back to the site ──
-// Requires html2canvas + qrcodejs (loaded via <script> tags in index.html)
-
-function ensureShareCanvasWrap(){
-  let wrap = document.getElementById('shareCanvasWrap');
-  if(!wrap){
-    wrap = document.createElement('div');
-    wrap.id = 'shareCanvasWrap';
-    wrap.style.cssText = 'position:fixed;left:-99999px;top:0;';
-    document.body.appendChild(wrap);
-  }
-  return wrap;
-}
-
-function buildQrDataUrl(text){
-  return new Promise((resolve) => {
-    const wrap = ensureShareCanvasWrap();
-    wrap.innerHTML = '';
-    // eslint-disable-next-line no-undef
-    new QRCode(wrap, { text, width: 96, height: 96, colorDark: '#120A04', colorLight: '#FFF6E9' });
-    setTimeout(() => {
-      const img = wrap.querySelector('img');
-      const canvas = wrap.querySelector('canvas');
-      const dataUrl = img ? img.src : (canvas ? canvas.toDataURL() : '');
-      resolve(dataUrl);
-    }, 60);
-  });
-}
-
-async function renderShareImage(dossierEl){
-  const siteUrl = window.location.origin + window.location.pathname;
-  const qrDataUrl = await buildQrDataUrl(siteUrl);
-
-  const clone = dossierEl.cloneNode(true);
-  clone.classList.add('show');
-  clone.querySelector('.dossier-actions')?.remove();
-
-  const footer = document.createElement('div');
-  footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:16px;border-top:1px solid #4A2E13;';
-  footer.innerHTML = `
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#D9AF80;line-height:1.5;">
-      FREEFIRE INFO — HELIX TANVIR<br>${siteUrl}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INFO BY HELIX </title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="ignite-strip"></div>
+<div class="wrap">
+ 
+  <header>
+    <div class="brand"><span class="dot"></span>FREEFIRE INFO <small>~HELIX(TANVIR)</small></div>
+    <div class="meta">BASE URL: COMING SOON<br>SOURCE:<STRONG>TANVIR HELIX</STRONG> <br><span id="onlineWrap" style="display:none;">🟢 <span id="onlineCount">0</span> online now</span><br><span id="totalWrap" style="display:none;">👁 <span id="totalCount">0</span> total visits</span></div>
+  </header>
+ 
+  <div class="hero-label">DARMSTADTIUM SEARCHER</div>
+  <h1 class="title">GET a player's <span>INFO</span><br>from UID.</h1>
+  <p class="sub">Enter a Free Fire UID to get account, rank, guild and loadout data.</p>
+ 
+  <div class="tool-tabs" id="toolTabs">
+    <button class="tool-tab active" data-tool="player">Player Lookup</button>
+    <button class="tool-tab" data-tool="guild">Guild Lookup</button>
+    <button class="tool-tab" data-tool="nickname">Nickname Lookup</button>
+  </div>
+ 
+  <div class="tool-panel" id="panelPlayer">
+  <div class="search-panel">
+    <div class="scan-sweep"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="uid">Player UID</label>
+        <input id="uid" type="text" inputmode="numeric" placeholder="e.g. 2312730961" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="region">Region</label>
+        <select id="region">
+          <option value="BD">BD</option>
+          <option value="IND">IND</option>
+          <option value="BR">BR</option>
+          <option value="US">US</option>
+          <option value="SAC">SAC</option>
+          <option value="NA">NA</option>
+          <option value="ID">ID</option>
+          <option value="SG">SG</option>
+          <option value="PK">PK</option>
+        </select>
+      </div>
     </div>
-    <img src="${qrDataUrl}" width="72" height="72" style="border-radius:2px;">
-  `;
-  clone.appendChild(footer);
-
-  const container = document.createElement('div');
-  container.style.cssText = 'width:880px;padding:28px;background:#1F1409;font-family:\'IBM Plex Mono\',monospace;color:#FFF6E9;';
-  container.appendChild(clone);
-
-  const wrap = ensureShareCanvasWrap();
-  wrap.innerHTML = '';
-  wrap.appendChild(container);
-
-  // eslint-disable-next-line no-undef
-  const canvas = await html2canvas(container, { backgroundColor: '#1F1409', scale: 2, useCORS: true });
-  wrap.innerHTML = '';
-  return canvas;
-}
-
-function wireDossierActions(dossierEl, filenamePrefix, idValueFn){
-  const actions = document.createElement('div');
-  actions.className = 'dossier-actions';
-  actions.innerHTML = `
-    <button class="ghost dl-btn">⬇ Download as Image</button>
-    <button class="ghost share-btn">↗ Share</button>
-  `;
-  dossierEl.appendChild(actions);
-
-  const dlBtn = actions.querySelector('.dl-btn');
-  const shareBtn = actions.querySelector('.share-btn');
-
-  dlBtn.addEventListener('click', async () => {
-    dlBtn.disabled = true;
-    try{
-      const canvas = await renderShareImage(dossierEl);
-      const link = document.createElement('a');
-      link.download = `${filenamePrefix}-${idValueFn() || 'result'}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    }catch(e){
-      console.error(e);
-    }finally{
-      dlBtn.disabled = false;
-    }
-  });
-
-  shareBtn.addEventListener('click', async () => {
-    shareBtn.disabled = true;
-    try{
-      const canvas = await renderShareImage(dossierEl);
-      canvas.toBlob(async (blob) => {
-        const file = new File([blob], `${filenamePrefix}-${idValueFn() || 'result'}.png`, { type: 'image/png' });
-        if(navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){
-          await navigator.share({
-            files: [file],
-            title: 'FF Intel Lookup',
-            text: `Check out this Free Fire lookup — ${window.location.origin}${window.location.pathname}`
-          });
-        }else{
-          const link = document.createElement('a');
-          link.download = file.name;
-          link.href = URL.createObjectURL(blob);
-          link.click();
-        }
-        shareBtn.disabled = false;
-      }, 'image/png');
-    }catch(e){
-      console.error(e);
-      shareBtn.disabled = false;
-    }
-  });
-}
-
-// Add download/share controls to all three dossiers.
-wireDossierActions(dossier, 'ff-info', () => uidInput.value);
-wireDossierActions(guildDossier, 'ff-guild', () => guildIdInput.value);
-wireDossierActions(nickDossier, 'ff-nick', () => nickUidInput.value);
+    <div class="key-row">
+      <button class="go" id="lookupBtn">GET INFO</button>
+    </div>
+    <div class="hint">FREE LOOKUP BY TANVIR. UID must be 8–12 digits.</div>
+ 
+    <div class="status" id="status"><span class="sq"></span><span id="statusText"></span></div>
+  </div>
+  </div>
+ 
+  <div class="tool-panel" id="panelGuild" style="display:none;">
+  <div class="search-panel">
+    <div class="scan-sweep"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="guildId">Guild ID</label>
+        <input id="guildId" type="text" inputmode="numeric" placeholder="e.g. 3102231070" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="guildRegion">Region</label>
+        <select id="guildRegion">
+          <option value="BD">BD</option>
+          <option value="IND">IND</option>
+          <option value="BR">BR</option>
+          <option value="US">US</option>
+          <option value="SAC">SAC</option>
+          <option value="NA">NA</option>
+          <option value="ID">ID</option>
+          <option value="SG">SG</option>
+          <option value="PK">PK</option>
+        </select>
+      </div>
+    </div>
+    <div class="key-row">
+      <button class="go" id="guildLookupBtn">GET GUILD</button>
+    </div>
+    <div class="hint">LOOK UP A GUILD BY ID.</div>
+    <div class="status" id="guildStatus"><span class="sq"></span><span id="guildStatusText"></span></div>
+  </div>
+  <div class="dossier" id="guildDossier">
+    <div class="dossier-head">
+      <h2 id="guildName">—</h2>
+      <span class="region" id="guildRegionOut">—</span>
+    </div>
+    <div class="dossier-sub" id="guildSub">—</div>
+    <div class="section" style="animation-delay:0.05s">
+      <div class="section-title">Guild Info</div>
+      <div class="stat-grid" id="gridGuildLookup"></div>
+    </div>
+  </div>
+  </div>
+ 
+  <div class="tool-panel" id="panelNickname" style="display:none;">
+  <div class="search-panel">
+    <div class="scan-sweep"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="nickUid">Player UID</label>
+        <input id="nickUid" type="text" inputmode="numeric" placeholder="e.g. 5877360318" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="nickRegion">Region</label>
+        <select id="nickRegion">
+          <option value="BD">BD</option>
+          <option value="IND">IND</option>
+          <option value="BR">BR</option>
+          <option value="US">US</option>
+          <option value="SAC">SAC</option>
+          <option value="NA">NA</option>
+          <option value="ID">ID</option>
+          <option value="SG">SG</option>
+          <option value="PK">PK</option>
+        </select>
+      </div>
+    </div>
+    <div class="key-row">
+      <button class="go" id="nickLookupBtn">GET NICKNAME</button>
+    </div>
+    <div class="hint">QUICK NICKNAME &amp; LEVEL LOOKUP. UID must be 8–12 digits.</div>
+    <div class="status" id="nickStatus"><span class="sq"></span><span id="nickStatusText"></span></div>
+  </div>
+  <div class="dossier" id="nickDossier">
+    <div class="dossier-head">
+      <h2 id="nickName">—</h2>
+      <span class="region" id="nickRegionOut">—</span>
+    </div>
+    <div class="dossier-sub" id="nickSub">—</div>
+    <div class="section" style="animation-delay:0.05s">
+      <div class="section-title">Player Info</div>
+      <div class="stat-grid" id="gridNickname"></div>
+    </div>
+  </div>
+  </div>
+ 
+  <div class="dossier" id="dossier">
+    <div class="dossier-head">
+      <h2 id="playerName">—</h2>
+      <span class="region" id="playerRegion">—</span>
+    </div>
+    <div class="dossier-sub" id="playerSub">—</div>
+ 
+    <div class="section" id="secAccount" style="animation-delay:0.05s">
+      <div class="section-title">Account Info</div>
+      <div class="stat-grid" id="gridAccount"></div>
+    </div>
+ 
+    <div class="section" id="secProfile" style="animation-delay:0.15s">
+      <div class="section-title">Rank &amp; Profile</div>
+      <div class="stat-grid" id="gridProfile"></div>
+    </div>
+ 
+    <div class="section" id="secGuild" style="animation-delay:0.25s">
+      <div class="section-title">Guild Info</div>
+      <div class="stat-grid" id="gridGuild"></div>
+    </div>
+ 
+    <div class="section" id="secEquip" style="animation-delay:0.35s">
+      <div class="section-title">Equipped Items</div>
+      <div class="stat-grid" id="gridEquip"></div>
+    </div>
+ 
+    <div class="section" id="secLoadout" style="animation-delay:0.4s">
+      <div class="section-title">Loadout — Weapon Skins &amp; Outfit</div>
+      <div class="stat-grid" id="gridLoadout"></div>
+    </div>
+ 
+    <div class="section" id="secSocial" style="animation-delay:0.45s">
+      <div class="section-title">Social Info</div>
+      <div class="stat-grid" id="gridSocial"></div>
+    </div>
+  </div>
+ 
+  <div class="usage-panel">
+    <div class="row">
+      <p><strong>FOR FREEFIRE LIKE AND DIAMOND TOP UP --></strong></p> <p> <a href="https://leakstudiobd.com/" class="button-style">TOP UP</a></p>
+    </div>
+  </div>
+ 
+  <div class="contact-panel">
+    <div class="section-title">Contact Me</div>
+    <div class="contact-list">
+      <a class="contact-item" href="https://www.facebook.com/mdtanvir.albert/" target="_blank" rel="noopener">
+        <span class="contact-icon">
+          <svg viewBox="0 0 24 24"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06C2 17.06 5.66 21.2 10.44 22v-7.03H7.9v-2.91h2.54V9.86c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.87h2.78l-.44 2.91h-2.34V22C18.34 21.2 22 17.06 22 12.06z"/></svg>
+        </span>
+        <span class="contact-label">Mohammad Tanvir</span>
+      </a>
+      <a class="contact-item" href="https://www.instagram.com/mth.tanvir/" target="_blank" rel="noopener">
+        <span class="contact-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2c-2.72 0-3.06.01-4.12.06-1.06.05-1.79.22-2.43.47-.66.26-1.22.6-1.77 1.16-.56.55-.9 1.11-1.16 1.77-.25.64-.42 1.37-.47 2.43C2 8.94 2 9.28 2 12s.01 3.06.06 4.12c.05 1.06.22 1.79.47 2.43.26.66.6 1.22 1.16 1.77.55.56 1.11.9 1.77 1.16.64.25 1.37.42 2.43.47C8.94 22 9.28 22 12 22s3.06-.01 4.12-.06c1.06-.05 1.79-.22 2.43-.47.66-.26 1.22-.6 1.77-1.16.56-.55.9-1.11 1.16-1.77.25-.64.42-1.37.47-2.43.05-1.06.06-1.4.06-4.12s-.01-3.06-.06-4.12c-.05-1.06-.22-1.79-.47-2.43-.26-.66-.6-1.22-1.16-1.77-.55-.56-1.11-.9-1.77-1.16-.64-.25-1.37-.42-2.43-.47C15.06 2.01 14.72 2 12 2zm0 1.8c2.67 0 2.99.01 4.04.06.98.04 1.51.21 1.86.34.47.18.8.4 1.15.75.35.35.57.68.75 1.15.13.35.3.88.34 1.86.05 1.05.06 1.37.06 4.04s-.01 2.99-.06 4.04c-.04.98-.21 1.51-.34 1.86-.18.47-.4.8-.75 1.15-.35.35-.68.57-1.15.75-.35.13-.88.3-1.86.34-1.05.05-1.37.06-4.04.06s-2.99-.01-4.04-.06c-.98-.04-1.51-.21-1.86-.34-.47-.18-.8-.4-1.15-.75-.35-.35-.57-.68-.75-1.15-.13-.35-.3-.88-.34-1.86C3.81 14.99 3.8 14.67 3.8 12s.01-2.99.06-4.04c.04-.98.21-1.51.34-1.86.18-.47.4-.8.75-1.15.35-.35.68-.57 1.15-.75.35-.13.88-.3 1.86-.34C9.01 3.81 9.33 3.8 12 3.8zm0 3.05a5.15 5.15 0 100 10.3 5.15 5.15 0 000-10.3zm0 8.5a3.35 3.35 0 110-6.7 3.35 3.35 0 010 6.7zm6.55-8.7a1.2 1.2 0 11-2.4 0 1.2 1.2 0 012.4 0z"/></svg>
+        </span>
+        <span class="contact-label">HELIXE</span>
+      </a>
+    </div>
+  </div>
+ 
+  <footer>
+    <span>FREEFIRE INFO--MADE BY HELIX TANVIR.</span>
+    <span>TANVIR HELIX &nbsp;·&nbsp; Paid version:-UNAVAILABLE</span>
+  </footer>
+</div>
+ 
+<!-- DevTools deterrent overlay -->
+<div class="dt-block" id="dtBlock">
+  <div class="dt-block-icon">!</div>
+  <h2>Access Denied</h2>
+  <p>Developer tools are disabled on this site.</p>
+  <p>Close DevTools and return to the page when you're ready.</p>
+  <div class="dt-spinner"></div>
+  <div class="dt-foot">FREEFIRE INFO — HELIX (TANVIR)</div>
+</div>
+ 
+<!-- Popup / announcement modal, content controlled remotely -->
+<div class="popup-overlay" id="popupOverlay">
+  <div class="popup-card">
+    <button class="popup-x" id="popupX" aria-label="Close">✕</button>
+    <div class="popup-img-wrap">
+      <img id="popupImg" alt="Announcement">
+    </div>
+    <div class="popup-body">
+      <div class="popup-caption" id="popupCaption"></div>
+      <button class="popup-close" id="popupCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+ 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="script.js"></script>
+<script src="devtools-guard.js"></script>
+<script type="module" src="firebase.js"></script>
+</body>
+</html>
+ 
