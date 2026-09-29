@@ -1,12 +1,17 @@
 // ── API CONFIG ─────────────────────────────────────────────
 
-
 const uidInput = document.getElementById('uid');
 const regionSelect = document.getElementById('region');
 const lookupBtn = document.getElementById('lookupBtn');
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
 const dossier = document.getElementById('dossier');
+
+// ── ICON APIS (tried in order; next one is used if the image is missing or blank) ──
+const ICON_APIS = [
+  id => `https://cdn.jsdelivr.net/gh/ShahGCreator/icon@main/PNG/${id}.png`,
+  id => `https://cdn.jsdelivr.net/gh/0xMe/ff-resources@main/pngs/300x300/${id}.png`
+];
 
 function isBlankImage(img){
   try{
@@ -32,17 +37,12 @@ function isBlankImage(img){
   }
 }
 
-
 function loadEquipImage(imgEl, itemID, onUnavailable){
   imgEl.classList.remove('loaded');
   imgEl.removeAttribute('src');
   if(!itemID){ if(onUnavailable) onUnavailable(); return; }
 
-  const urls = [
-    `https://cdn.jsdelivr.net/gh/0xMe/ff-resources@main/pngs/300x300/${itemID}.png`,
-    `https://cdn.jsdelivr.net/gh/I-SHOW-AKIRU200/AKIRU-ICONS@main/ICONS/${itemID}.png`,
-    `https://iconapi.wasmer.app/${itemID}`
-  ];
+  const urls = ICON_APIS.map(fn => fn(itemID));
   let i = 0;
 
   function tryNext(){
@@ -152,7 +152,6 @@ async function lookupPlayer(){
     lookupBtn.disabled = false;
   }
 }
-
 
 function renderDossier(data){
   const acc = data.AccountInfo || {};
