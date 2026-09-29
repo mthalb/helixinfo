@@ -502,6 +502,18 @@ async function renderShareImage(dossierEl){
   clone.classList.add('show');
   clone.querySelector('.dossier-actions')?.remove();
 
+  // The dossier's sections fade in via a CSS animation when they first
+  // appear (opacity:0 -> 1). The clone starts that animation fresh, and
+  // html2canvas would otherwise capture it mid-fade (often at opacity:0,
+  // i.e. a blank image). Force everything fully visible and static.
+  clone.style.animation = 'none';
+  clone.style.opacity = '1';
+  clone.querySelectorAll('.section').forEach(sec => {
+    sec.style.animation = 'none';
+    sec.style.opacity = '1';
+    sec.style.transform = 'none';
+  });
+
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:16px;border-top:1px solid #4A2E13;';
   footer.innerHTML = `
@@ -519,6 +531,17 @@ async function renderShareImage(dossierEl){
   const wrap = ensureShareCanvasWrap();
   wrap.innerHTML = '';
   wrap.appendChild(container);
+
+  // Give the browser a couple of frames to finish layout, and wait for
+  // any equip-item images in the clone to finish loading, so the capture
+  // isn't taken mid-paint.
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const imgs = Array.from(container.querySelectorAll('img'));
+  await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
+    img.addEventListener('load', res, { once: true });
+    img.addEventListener('error', res, { once: true });
+    setTimeout(res, 1500); // safety timeout so one slow/broken image can't block the whole capture
+  })));
 
   // eslint-disable-next-line no-undef
   const canvas = await html2canvas(container, { backgroundColor: '#1F1409', scale: 2, useCORS: true });
