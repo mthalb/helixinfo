@@ -75,6 +75,7 @@ function equipImageStat(label, itemID){
 
   const img = document.createElement('img');
   img.alt = label;
+  img.crossOrigin = 'anonymous'; // needed so html2canvas can capture it
 
   const fallback = document.createElement('div');
   fallback.className = 'equip-thumb-fallback';
@@ -88,14 +89,6 @@ function equipImageStat(label, itemID){
 
   loadEquipImage(img, itemID, () => { fallback.textContent = 'Unavailable'; });
   return stat;
-}
-
-function setStatus(kind, text){
-  statusEl.className = 'status show ' + kind;
-  statusText.textContent = text;
-}
-function clearStatus(){
-  statusEl.className = 'status';
 }
 
 function fillGrid(gridEl, entries, append){
@@ -117,13 +110,105 @@ function fmtTimestamp(ts){
   return d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
 }
 
+// ── Shared UID validation (8–12 digits) ──
+function isValidUid(uid){
+  return /^[0-9]{8,12}$/.test(uid);
+}
+function wireDigitsOnly(input, maxLen){
+  input.setAttribute('maxlength', String(maxLen));
+  input.addEventListener('input', () => {
+    input.value = input.value.replace(/[^0-9]/g, '');
+    input.classList.remove('invalid');
+  });
+}
+
+// ── Shared result cache (3 minutes) ──
+const CACHE_TTL_MS = 3 * 60 * 1000;
+const resultCache = new Map(); // key "type:id:region" -> { data, at }
+
+function cacheKey(type, id, region){ return `${type}:${id}:${region || ''}`; }
+function getCached(type, id, region){
+  const hit = resultCache.get(cacheKey(type, id, region));
+  if(!hit) return null;
+  if(Date.now() - hit.at > CACHE_TTL_MS){
+    resultCache.delete(cacheKey(type, id, region));
+    return null;
+  }
+  return hit.data;
+}
+function setCached(type, id, region, data){
+  resultCache.set(cacheKey(type, id, region), { data, at: Date.now() });
+}
+
+// ── Shared cooldown: one 3s lock across all lookup buttons, so spam-
+// clicking any tool can't be used to hammer the API. ──
+const COOLDOWN_MS = 3000;
+let cooldownUntil = 0;
+let cooldownTimer = null;
+const ALL_LOOKUP_BUTTONS = () => [lookupBtn, guildLookupBtn, nickLookupBtn].filter(Boolean);
+const ALL_STATUS_SETTERS = [];
+
+function startCooldown(activeSetStatus){
+  cooldownUntil = Date.now() + COOLDOWN_MS;
+  ALL_LOOKUP_BUTTONS().forEach(b => b.disabled = true);
+  tickCooldown(activeSetStatus);
+}
+function tickCooldown(activeSetStatus){
+  const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+  if(remaining <= 0){
+    ALL_LOOKUP_BUTTONS().forEach(b => b.disabled = false);
+    clearTimeout(cooldownTimer);
+    return;
+  }
+  activeSetStatus('cooldown', `Please wait ${remaining}s before searching again…`);
+  cooldownTimer = setTimeout(() => tickCooldown(activeSetStatus), 250);
+}
+
+// ── Generic status helper with optional retry button ──
+function makeStatusHelpers(el, textEl){
+  function setStatus(kind, text, opts){
+    el.className = 'status show ' + kind;
+    textEl.textContent = text;
+    const existingRetry = el.querySelector('.retry-btn');
+    if(existingRetry) existingRetry.remove();
+    if(opts && opts.retry){
+      const btn = document.createElement('button');
+      btn.className = 'retry-btn';
+      btn.textContent = 'Retry';
+      btn.addEventListener('click', opts.retry);
+      el.appendChild(btn);
+    }
+  }
+  function clearStatus(){ el.className = 'status'; }
+  return { setStatus, clearStatus };
+}
+
+const { setStatus, clearStatus } = makeStatusHelpers(statusEl, statusText);
+wireDigitsOnly(uidInput, 12);
+
 async function lookupPlayer(){
+  if(Date.now() < cooldownUntil) return;
+
   const uid = uidInput.value.trim();
   const region = (regionSelect.value || 'BD');
 
-  if(!uid){ setStatus('error', 'Enter a UID first.'); return; }
+  if(!isValidUid(uid)){
+    uidInput.classList.add('invalid');
+    setStatus('error', 'UID must be 8–12 digits.');
+    return;
+  }
+
   lookupBtn.disabled = true;
   dossier.classList.remove('show');
+
+  const cached = getCached('player', uid, region);
+  if(cached){
+    renderDossier(cached, uid);
+    setStatus('cached', 'Loaded from cache (recently searched).');
+    startCooldown(setStatus);
+    return;
+  }
+
   setStatus('loading', 'Getting …');
 
   const url = `/api/lookup?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region.toLowerCase())}`;
@@ -134,26 +219,27 @@ async function lookupPlayer(){
 
     if(!res.ok || (data && data.error)){
       const msg = (data && data.error) ? data.error : `Request failed (${res.status}).`;
-      setStatus('error', msg);
+      setStatus('error', msg, { retry: () => { clearStatus(); lookupPlayer(); } });
       lookupBtn.disabled = false;
       return;
     }
     if(!data){
-      setStatus('error', 'Empty or unreadable response.');
+      setStatus('error', 'Empty or unreadable response.', { retry: () => { clearStatus(); lookupPlayer(); } });
       lookupBtn.disabled = false;
       return;
     }
 
-    renderDossier(data);
+    setCached('player', uid, region, data);
+    renderDossier(data, uid);
     clearStatus();
+    startCooldown(setStatus);
   }catch(err){
-    setStatus('error', 'Request blocked or network error.');
-  }finally{
+    setStatus('error', 'Request blocked or network error.', { retry: () => { clearStatus(); lookupPlayer(); } });
     lookupBtn.disabled = false;
   }
 }
 
-function renderDossier(data){
+function renderDossier(data, uidForDisplay){
   const acc = data.AccountInfo || {};
   const profile = data.AccountProfileInfo || {};
   const guild = data.GuildInfo || {};
@@ -162,7 +248,7 @@ function renderDossier(data){
 
   document.getElementById('playerName').textContent = acc.AccountName || 'Unknown Player';
   document.getElementById('playerRegion').textContent = acc.AccountRegion || regionSelect.value || 'AUTO';
-  document.getElementById('playerSub').textContent = `UID ${acc.AccountId || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
+  document.getElementById('playerSub').textContent = `UID ${acc.AccountId || uidForDisplay || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
 
   fillGrid(document.getElementById('gridAccount'), [
     ['Level', acc.AccountLevel],
@@ -248,20 +334,26 @@ const guildLookupBtn = document.getElementById('guildLookupBtn');
 const guildStatusEl = document.getElementById('guildStatus');
 const guildStatusText = document.getElementById('guildStatusText');
 const guildDossier = document.getElementById('guildDossier');
-
-function setGuildStatus(kind, text){
-  guildStatusEl.className = 'status show ' + kind;
-  guildStatusText.textContent = text;
-}
-function clearGuildStatus(){ guildStatusEl.className = 'status'; }
+const { setStatus: setGuildStatus, clearStatus: clearGuildStatus } = makeStatusHelpers(guildStatusEl, guildStatusText);
 
 async function lookupGuild(){
+  if(Date.now() < cooldownUntil) return;
+
   const id = guildIdInput.value.trim();
   const region = (guildRegionSelect.value || 'BD').toLowerCase();
   if(!id){ setGuildStatus('error', 'Enter a guild ID first.'); return; }
 
   guildLookupBtn.disabled = true;
   guildDossier.classList.remove('show');
+
+  const cached = getCached('guild', id, region);
+  if(cached){
+    paintGuild(cached, id, region);
+    setGuildStatus('cached', 'Loaded from cache (recently searched).');
+    startCooldown(setGuildStatus);
+    return;
+  }
+
   setGuildStatus('loading', 'Getting …');
 
   const url = `/api/guild?id=${encodeURIComponent(id)}&region=${encodeURIComponent(region)}`;
@@ -269,30 +361,37 @@ async function lookupGuild(){
     const res = await fetch(url);
     const data = await res.json().catch(() => null);
     if(!res.ok || !data || data.success === false){
-      setGuildStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`);
+      setGuildStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`, { retry: () => { clearGuildStatus(); lookupGuild(); } });
       return;
     }
-    const g = (data.GuildInfoResponse && data.GuildInfoResponse.GuildInfo) || {};
-    document.getElementById('guildName').textContent = g.GuildName || 'Unknown Guild';
-    document.getElementById('guildRegionOut').textContent = g.GuildRegion || region.toUpperCase();
-    document.getElementById('guildSub').textContent = `Guild ID ${g.GuildId || id} · Level ${g.GuildLevel ?? '—'}`;
-    fillGrid(document.getElementById('gridGuildLookup'), [
-      ['Members', g.GuildCurrentMembers != null ? `${g.GuildCurrentMembers}/${g.GuildCapacity}` : null],
-      ['Level', g.GuildLevel],
-      ['Leader UID', g.GuildLeaderUID],
-      ['Activity Points', g.GuildActivityPoint, true],
-      ['Weekly Activity', g.GuildWeeklyActivityPoint, true],
-      ['Slogan', g.GuildSlogan],
-      ['Created', g.GuildCreateTime ? fmtTimestamp(g.GuildCreateTime) : null],
-    ]);
-    guildDossier.classList.add('show');
+    setCached('guild', id, region, data);
+    paintGuild(data, id, region);
     clearGuildStatus();
+    startCooldown(setGuildStatus);
   }catch(err){
-    setGuildStatus('error', 'Request blocked or network error.');
+    setGuildStatus('error', 'Request blocked or network error.', { retry: () => { clearGuildStatus(); lookupGuild(); } });
   }finally{
     guildLookupBtn.disabled = false;
   }
 }
+
+function paintGuild(data, id, region){
+  const g = (data.GuildInfoResponse && data.GuildInfoResponse.GuildInfo) || {};
+  document.getElementById('guildName').textContent = g.GuildName || 'Unknown Guild';
+  document.getElementById('guildRegionOut').textContent = g.GuildRegion || region.toUpperCase();
+  document.getElementById('guildSub').textContent = `Guild ID ${g.GuildId || id} · Level ${g.GuildLevel ?? '—'}`;
+  fillGrid(document.getElementById('gridGuildLookup'), [
+    ['Members', g.GuildCurrentMembers != null ? `${g.GuildCurrentMembers}/${g.GuildCapacity}` : null],
+    ['Level', g.GuildLevel],
+    ['Leader UID', g.GuildLeaderUID],
+    ['Activity Points', g.GuildActivityPoint, true],
+    ['Weekly Activity', g.GuildWeeklyActivityPoint, true],
+    ['Slogan', g.GuildSlogan],
+    ['Created', g.GuildCreateTime ? fmtTimestamp(g.GuildCreateTime) : null],
+  ]);
+  guildDossier.classList.add('show');
+}
+
 guildLookupBtn.addEventListener('click', lookupGuild);
 guildIdInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupGuild(); });
 
@@ -303,20 +402,32 @@ const nickLookupBtn = document.getElementById('nickLookupBtn');
 const nickStatusEl = document.getElementById('nickStatus');
 const nickStatusText = document.getElementById('nickStatusText');
 const nickDossier = document.getElementById('nickDossier');
-
-function setNickStatus(kind, text){
-  nickStatusEl.className = 'status show ' + kind;
-  nickStatusText.textContent = text;
-}
-function clearNickStatus(){ nickStatusEl.className = 'status'; }
+const { setStatus: setNickStatus, clearStatus: clearNickStatus } = makeStatusHelpers(nickStatusEl, nickStatusText);
+wireDigitsOnly(nickUidInput, 12);
 
 async function lookupNickname(){
+  if(Date.now() < cooldownUntil) return;
+
   const uid = nickUidInput.value.trim();
   const region = (nickRegionSelect.value || 'BD').toLowerCase();
-  if(!uid){ setNickStatus('error', 'Enter a UID first.'); return; }
+
+  if(!isValidUid(uid)){
+    nickUidInput.classList.add('invalid');
+    setNickStatus('error', 'UID must be 8–12 digits.');
+    return;
+  }
 
   nickLookupBtn.disabled = true;
   nickDossier.classList.remove('show');
+
+  const cached = getCached('nickname', uid, region);
+  if(cached){
+    paintNickname(cached, uid, region);
+    setNickStatus('cached', 'Loaded from cache (recently searched).');
+    startCooldown(setNickStatus);
+    return;
+  }
+
   setNickStatus('loading', 'Getting …');
 
   const url = `/api/nickname?uid=${encodeURIComponent(uid)}&region=${encodeURIComponent(region)}`;
@@ -324,25 +435,152 @@ async function lookupNickname(){
     const res = await fetch(url);
     const data = await res.json().catch(() => null);
     if(!res.ok || !data || data.success === false){
-      setNickStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`);
+      setNickStatus('error', (data && (data.error || data.message)) || `Request failed (${res.status}).`, { retry: () => { clearNickStatus(); lookupNickname(); } });
       return;
     }
-    document.getElementById('nickName').textContent = data.nickname || 'Unknown Player';
-    document.getElementById('nickRegionOut').textContent = (data.region || region).toUpperCase();
-    document.getElementById('nickSub').textContent = `UID ${data.player_id || uid} · Level ${data.level ?? '—'}`;
-    fillGrid(document.getElementById('gridNickname'), [
-      ['Nickname', data.nickname],
-      ['Level', data.level],
-      ['Likes', data.likes?.toLocaleString?.() ?? data.likes, true],
-      ['Region', (data.region || region).toUpperCase()],
-    ]);
-    nickDossier.classList.add('show');
+    setCached('nickname', uid, region, data);
+    paintNickname(data, uid, region);
     clearNickStatus();
+    startCooldown(setNickStatus);
   }catch(err){
-    setNickStatus('error', 'Request blocked or network error.');
+    setNickStatus('error', 'Request blocked or network error.', { retry: () => { clearNickStatus(); lookupNickname(); } });
   }finally{
     nickLookupBtn.disabled = false;
   }
 }
+
+function paintNickname(data, uid, region){
+  document.getElementById('nickName').textContent = data.nickname || 'Unknown Player';
+  document.getElementById('nickRegionOut').textContent = (data.region || region).toUpperCase();
+  document.getElementById('nickSub').textContent = `UID ${data.player_id || uid} · Level ${data.level ?? '—'}`;
+  fillGrid(document.getElementById('gridNickname'), [
+    ['Nickname', data.nickname],
+    ['Level', data.level],
+    ['Likes', data.likes?.toLocaleString?.() ?? data.likes, true],
+    ['Region', (data.region || region).toUpperCase()],
+  ]);
+  nickDossier.classList.add('show');
+}
+
 nickLookupBtn.addEventListener('click', lookupNickname);
 nickUidInput.addEventListener('keydown', e => { if(e.key === 'Enter') lookupNickname(); });
+
+// ── Download / Share dossier as an image with a QR code back to the site ──
+// Requires html2canvas + qrcodejs (loaded via <script> tags in index.html)
+
+function ensureShareCanvasWrap(){
+  let wrap = document.getElementById('shareCanvasWrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'shareCanvasWrap';
+    wrap.style.cssText = 'position:fixed;left:-99999px;top:0;';
+    document.body.appendChild(wrap);
+  }
+  return wrap;
+}
+
+function buildQrDataUrl(text){
+  return new Promise((resolve) => {
+    const wrap = ensureShareCanvasWrap();
+    wrap.innerHTML = '';
+    // eslint-disable-next-line no-undef
+    new QRCode(wrap, { text, width: 96, height: 96, colorDark: '#120A04', colorLight: '#FFF6E9' });
+    setTimeout(() => {
+      const img = wrap.querySelector('img');
+      const canvas = wrap.querySelector('canvas');
+      const dataUrl = img ? img.src : (canvas ? canvas.toDataURL() : '');
+      resolve(dataUrl);
+    }, 60);
+  });
+}
+
+async function renderShareImage(dossierEl){
+  const siteUrl = window.location.origin + window.location.pathname;
+  const qrDataUrl = await buildQrDataUrl(siteUrl);
+
+  const clone = dossierEl.cloneNode(true);
+  clone.classList.add('show');
+  clone.querySelector('.dossier-actions')?.remove();
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:16px;border-top:1px solid #4A2E13;';
+  footer.innerHTML = `
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#D9AF80;line-height:1.5;">
+      FREEFIRE INFO — HELIX TANVIR<br>${siteUrl}
+    </div>
+    <img src="${qrDataUrl}" width="72" height="72" style="border-radius:2px;">
+  `;
+  clone.appendChild(footer);
+
+  const container = document.createElement('div');
+  container.style.cssText = 'width:880px;padding:28px;background:#1F1409;font-family:\'IBM Plex Mono\',monospace;color:#FFF6E9;';
+  container.appendChild(clone);
+
+  const wrap = ensureShareCanvasWrap();
+  wrap.innerHTML = '';
+  wrap.appendChild(container);
+
+  // eslint-disable-next-line no-undef
+  const canvas = await html2canvas(container, { backgroundColor: '#1F1409', scale: 2, useCORS: true });
+  wrap.innerHTML = '';
+  return canvas;
+}
+
+function wireDossierActions(dossierEl, filenamePrefix, idValueFn){
+  const actions = document.createElement('div');
+  actions.className = 'dossier-actions';
+  actions.innerHTML = `
+    <button class="ghost dl-btn">⬇ Download as Image</button>
+    <button class="ghost share-btn">↗ Share</button>
+  `;
+  dossierEl.appendChild(actions);
+
+  const dlBtn = actions.querySelector('.dl-btn');
+  const shareBtn = actions.querySelector('.share-btn');
+
+  dlBtn.addEventListener('click', async () => {
+    dlBtn.disabled = true;
+    try{
+      const canvas = await renderShareImage(dossierEl);
+      const link = document.createElement('a');
+      link.download = `${filenamePrefix}-${idValueFn() || 'result'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }catch(e){
+      console.error(e);
+    }finally{
+      dlBtn.disabled = false;
+    }
+  });
+
+  shareBtn.addEventListener('click', async () => {
+    shareBtn.disabled = true;
+    try{
+      const canvas = await renderShareImage(dossierEl);
+      canvas.toBlob(async (blob) => {
+        const file = new File([blob], `${filenamePrefix}-${idValueFn() || 'result'}.png`, { type: 'image/png' });
+        if(navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){
+          await navigator.share({
+            files: [file],
+            title: 'FF Intel Lookup',
+            text: `Check out this Free Fire lookup — ${window.location.origin}${window.location.pathname}`
+          });
+        }else{
+          const link = document.createElement('a');
+          link.download = file.name;
+          link.href = URL.createObjectURL(blob);
+          link.click();
+        }
+        shareBtn.disabled = false;
+      }, 'image/png');
+    }catch(e){
+      console.error(e);
+      shareBtn.disabled = false;
+    }
+  });
+}
+
+// Add download/share controls to all three dossiers.
+wireDossierActions(dossier, 'ff-info', () => uidInput.value);
+wireDossierActions(guildDossier, 'ff-guild', () => guildIdInput.value);
+wireDossierActions(nickDossier, 'ff-nick', () => nickUidInput.value);
