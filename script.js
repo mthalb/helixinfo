@@ -250,6 +250,15 @@ function renderDossier(data, uidForDisplay){
   document.getElementById('playerRegion').textContent = acc.AccountRegion || regionSelect.value || 'AUTO';
   document.getElementById('playerSub').textContent = `UID ${acc.AccountId || uidForDisplay || uidInput.value} · Level ${acc.AccountLevel ?? '—'} · Season ${acc.AccountSeasonId ?? '—'}`;
 
+  // Populate the banner card: level badge, and the avatar/banner images
+  // (resolved the same way as the Equipped Items thumbnails below).
+  const levelBadge = document.getElementById('playerLevelBadge');
+  levelBadge.textContent = acc.AccountLevel != null ? `Lv ${acc.AccountLevel}` : '';
+  const bannerImg = document.getElementById('dossierBannerImg');
+  const avatarImg = document.getElementById('dossierAvatarImg');
+  loadEquipImage(bannerImg, acc.AccountBannerId, () => {});
+  loadEquipImage(avatarImg, acc.AccountAvatarId, () => {});
+
   fillGrid(document.getElementById('gridAccount'), [
     ['Level', acc.AccountLevel],
     ['EXP', acc.AccountEXP?.toLocaleString?.() ?? acc.AccountEXP],
