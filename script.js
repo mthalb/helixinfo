@@ -494,6 +494,88 @@ function buildQrDataUrl(text){
   });
 }
 
+// Finds the already-loaded avatar/banner <img> inside a dossier's Equipped
+// Items grid (matched by its label), so the share card can reuse the same
+// resolved image URL instead of re-fetching it.
+function getEquipImgSrc(dossierEl, label){
+  const stats = dossierEl.querySelectorAll('.equip-stat');
+  for(const stat of stats){
+    const k = stat.querySelector('.k');
+    const img = stat.querySelector('img.loaded');
+    if(k && img && k.textContent.trim() === label) return img.src;
+  }
+  return null;
+}
+
+// Builds a compact in-game-style player card (banner background, avatar,
+// name, level, UID) to use as the share image's header, in place of the
+// plain text header. Only meaningful for the player dossier, which has
+// avatar/banner data; other dossiers keep their normal header.
+function buildPlayerCardHeader(dossierEl){
+  const name = dossierEl.querySelector('#playerName')?.textContent || 'Unknown Player';
+  const region = dossierEl.querySelector('#playerRegion')?.textContent || '';
+  const subText = dossierEl.querySelector('#playerSub')?.textContent || '';
+  const levelMatch = subText.match(/Level\s+([0-9]+)/i);
+  const level = levelMatch ? levelMatch[1] : null;
+  const uidMatch = subText.match(/UID\s+([0-9]+)/i);
+  const uid = uidMatch ? uidMatch[1] : '';
+  const guildNameEl = document.getElementById('gridGuild')?.querySelector('.stat .v');
+  const guildName = document.getElementById('secGuild')?.style.display !== 'none' ? (guildNameEl?.textContent || '') : '';
+
+  const bannerUrl = getEquipImgSrc(dossierEl, 'Banner');
+  const avatarUrl = getEquipImgSrc(dossierEl, 'Avatar');
+
+  const card = document.createElement('div');
+  card.style.cssText = 'position:relative;width:100%;height:180px;border-radius:4px;overflow:hidden;margin-bottom:24px;background:linear-gradient(165deg,#1F1409,#2A1B0C);border:1px solid #4A2E13;';
+
+  if(bannerUrl){
+    const bg = document.createElement('img');
+    bg.src = bannerUrl;
+    bg.crossOrigin = 'anonymous';
+    bg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+    card.appendChild(bg);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:absolute;inset:0;background:linear-gradient(180deg, rgba(18,10,4,0.15) 0%, rgba(18,10,4,0.85) 100%);';
+  card.appendChild(overlay);
+
+  if(level){
+    const badge = document.createElement('div');
+    badge.textContent = `Lv ${level}`;
+    badge.style.cssText = 'position:absolute;top:12px;right:12px;background:#FFD400;color:#120A04;font-family:Rajdhani,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.04em;padding:4px 12px;border-radius:3px;';
+    card.appendChild(badge);
+  }
+
+  if(region){
+    const regionBadge = document.createElement('div');
+    regionBadge.textContent = region;
+    regionBadge.style.cssText = 'position:absolute;top:12px;left:12px;background:rgba(255,122,24,0.9);color:#120A04;font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:11px;letter-spacing:0.06em;padding:3px 9px;border-radius:3px;';
+    card.appendChild(regionBadge);
+  }
+
+  const infoRow = document.createElement('div');
+  infoRow.style.cssText = 'position:absolute;left:16px;bottom:14px;right:16px;display:flex;align-items:center;gap:12px;';
+
+  if(avatarUrl){
+    const avatar = document.createElement('img');
+    avatar.src = avatarUrl;
+    avatar.crossOrigin = 'anonymous';
+    avatar.style.cssText = 'width:56px;height:56px;border-radius:50%;border:2px solid #FFD400;object-fit:cover;background:#1A0F06;flex-shrink:0;';
+    infoRow.appendChild(avatar);
+  }
+
+  const textCol = document.createElement('div');
+  textCol.innerHTML = `
+    <div style="font-family:Rajdhani,sans-serif;font-weight:800;font-size:21px;color:#FFF6E9;line-height:1.2;">${name}</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#D9AF80;margin-top:2px;">UID ${uid}${guildName ? ' · ' + guildName : ''}</div>
+  `;
+  infoRow.appendChild(textCol);
+  card.appendChild(infoRow);
+
+  return card;
+}
+
 async function renderShareImage(dossierEl){
   const siteUrl = window.location.origin + window.location.pathname;
   const qrDataUrl = await buildQrDataUrl(siteUrl);
@@ -501,6 +583,15 @@ async function renderShareImage(dossierEl){
   const clone = dossierEl.cloneNode(true);
   clone.classList.add('show');
   clone.querySelector('.dossier-actions')?.remove();
+
+  // For the player dossier, swap the plain text header for a compact
+  // in-game-style card (banner + avatar + name + level).
+  if(dossierEl.id === 'dossier'){
+    const card = buildPlayerCardHeader(dossierEl);
+    clone.querySelector('.dossier-head')?.remove();
+    clone.querySelector('.dossier-sub')?.remove();
+    clone.insertBefore(card, clone.firstChild);
+  }
 
   // The dossier's sections fade in via a CSS animation when they first
   // appear (opacity:0 -> 1). The clone starts that animation fresh, and
